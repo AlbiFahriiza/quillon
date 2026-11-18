@@ -23,6 +23,18 @@ fn fixture(name: &str) -> String {
     format!("{FIXTURES}/{name}")
 }
 
+/// (hits, misses) from the CLI's cache summary line.
+fn cache_counts(stderr: &str) -> (u64, u64) {
+    let line = stderr
+        .lines()
+        .find(|l| l.starts_with("cache: "))
+        .unwrap_or_else(|| panic!("no cache line in: {stderr}"));
+    let mut numbers = line
+        .split(',')
+        .filter_map(|part| part.split_whitespace().find_map(|w| w.parse::<u64>().ok()));
+    (numbers.next().unwrap(), numbers.next().unwrap())
+}
+
 #[test]
 fn valid_document_exits_zero() {
     let (code, stdout, stderr) = run(&["validate", &fixture("valid.json")]);
@@ -183,4 +195,53 @@ fn ffmpeg_available() -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok_and(|s| s.success())
+}
+
+#[test]
+fn render_with_cache_dir_all_hits_on_second_run() {
+    // Acceptance v0.2 #1, end to end: the same document rendered twice
+    // through --cache-dir; the second run must hit the cache for every
+    // frame and produce the identical manifest.
+    let unique = format!(
+        "quillon-cli-cache-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let root = std::env::temp_dir().join(unique);
+    let cache = root.join("cache");
+    let out1 = root.join("out1");
+    let out2 = root.join("out2");
+    let (code, stdout, stderr) = run(&[
+        "render",
+        &fixture("valid.json"),
+        "--format",
+        "png",
+        "--out",
+        out1.to_str().unwrap(),
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stdout: {stdout}, stderr: {stderr}");
+    let (hits, misses) = cache_counts(&stderr);
+    assert_eq!((hits, misses), (0, 10), "first run misses every frame");
+    let (code, stdout, stderr) = run(&[
+        "render",
+        &fixture("valid.json"),
+        "--format",
+        "png",
+        "--out",
+        out2.to_str().unwrap(),
+        "--cache-dir",
+        cache.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "stdout: {stdout}, stderr: {stderr}");
+    let (hits, misses) = cache_counts(&stderr);
+    assert_eq!((hits, misses), (10, 0), "second run hits every frame, got: {stderr}");
+    let first = std::fs::read_to_string(out1.join("manifest.json")).unwrap();
+    let second = std::fs::read_to_string(out2.join("manifest.json")).unwrap();
+    assert_eq!(first, second, "manifests must be identical");
+    let _ = std::fs::remove_dir_all(&root);
 }

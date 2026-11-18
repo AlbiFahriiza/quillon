@@ -4,13 +4,12 @@
 //! Usage errors exit 1 (clap's default 2 is reserved for document problems).
 
 use clap::{Parser, Subcommand, ValueEnum};
-use quillon_core::frame_source::NullFrameSource;
-use quillon_core::time::frame_tick;
 use quillon_core::{Document, lint_document, validate_str};
 use quillon_media::Mp4Sink;
-use quillon_render::{RENDERER_VERSION, Renderer};
+use quillon_render::{RENDERER_VERSION, render_document_parallel};
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(
@@ -44,6 +43,13 @@ enum Command {
         /// Output container: `mp4` (default) or `png`.
         #[arg(long, default_value = "mp4")]
         format: Format,
+        /// Parallel render workers (default: one per CPU core).
+        #[arg(long)]
+        workers: Option<usize>,
+        /// Store and reuse rendered frames in this directory: re-renders
+        /// only compute frames whose scene content changed.
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
         /// Print machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -75,8 +81,10 @@ fn main() {
             doc,
             out,
             format,
+            workers,
+            cache_dir,
             json,
-        } => render(&doc, &out, format, json),
+        } => render(&doc, &out, format, workers, cache_dir, json),
     };
     std::process::exit(code);
 }
@@ -143,91 +151,155 @@ fn validate(path: &Path, json: bool, allow_lint: bool) -> i32 {
     0
 }
 
-fn render(path: &Path, out: &Path, format: Format, json: bool) -> i32 {
+/// In-memory cache layer budget; the disk layer is bounded by the caller's
+/// directory. 128 MiB is roughly sixteen 1080p frames.
+const CACHE_MEMORY_BYTES: usize = 128 << 20;
+
+fn render(
+    path: &Path,
+    out: &Path,
+    format: Format,
+    workers: Option<usize>,
+    cache_dir: Option<PathBuf>,
+    json: bool,
+) -> i32 {
     let doc = match read_document(path) {
         Ok(doc) => doc,
         Err(code) => return code,
     };
     let base = path.parent().unwrap_or(Path::new("."));
-    let renderer = match Renderer::new(&doc, base) {
-        Ok(renderer) => renderer,
+    let workers = workers.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    });
+
+    // Opt-in cache: content-addressed frames keyed by document subtree,
+    // renderer version, asset hashes and tick (research/G).
+    let cache = match cache_dir {
+        Some(dir) => match quillon_cache::FrameCache::open(&dir, CACHE_MEMORY_BYTES) {
+            Ok(cache) => Some(cache),
+            Err(err) => {
+                eprintln!("cannot open the cache directory {}: {err}", dir.display());
+                return 1;
+            }
+        },
+        None => None,
+    };
+    let keys = match &cache {
+        Some(_) => match quillon_cache::SessionKeys::new(&doc, base, RENDERER_VERSION, 0) {
+            Ok(keys) => Some(Arc::new(keys)),
+            Err(err) => {
+                eprintln!("cannot hash the document assets: {err}");
+                return 1;
+            }
+        },
+        None => None,
+    };
+    let (cache_get, cache_put) = match (&cache, &keys) {
+        (Some(cache), Some(keys)) => {
+            // Each hook owns its Arc clones; `doc` travels with them so the
+            // closures can outlive this stack frame ('static).
+            let shared_doc = Arc::new(doc.clone());
+            let get: quillon_render::CacheGet = {
+                let cache = cache.clone();
+                let keys = Arc::clone(keys);
+                let doc = Arc::clone(&shared_doc);
+                Arc::new(move |scene_idx, local| cache.get(&keys.frame_key(&doc, scene_idx, local)))
+            };
+            let put: quillon_render::CachePut = {
+                let cache = cache.clone();
+                let keys = Arc::clone(keys);
+                let doc = Arc::clone(&shared_doc);
+                Arc::new(move |scene_idx, local, frame| {
+                    // A failed cache write costs a re-render, nothing more.
+                    let _ = cache.put(keys.frame_key(&doc, scene_idx, local), frame.clone());
+                })
+            };
+            (Some(get), Some(put))
+        }
+        _ => (None, None),
+    };
+
+    let rx = match render_document_parallel(&doc, base, workers, cache_get, cache_put) {
+        Ok(rx) => rx,
         Err(err) => {
             eprintln!("cannot prepare the render: {err}");
             return 1;
         }
     };
 
-    let mut frames = Vec::new();
-    for i in 0..doc.frame_count() {
-        let tick = (i as i64) * frame_tick(doc.fps);
-        let frame = match renderer.render_tick(tick, &NullFrameSource) {
-            Ok(frame) => frame,
+    // Stream frames to the output as they arrive: peak memory is the
+    // pipeline chunk plus the channel, never the whole video (research/R).
+    let mut sink = match format {
+        Format::Mp4 => match Mp4Sink::new(out, doc.size.w, doc.size.h, doc.fps) {
+            Ok(sink) => Some(sink),
             Err(err) => {
-                eprintln!("render failed at frame {i}: {err}");
+                eprintln!("cannot start the encoder: {err}");
+                return 1;
+            }
+        },
+        Format::Png => {
+            if let Err(err) = std::fs::create_dir_all(out) {
+                eprintln!("cannot create {}: {err}", out.display());
+                return 1;
+            }
+            None
+        }
+    };
+    let mut hashes = Vec::new();
+    let mut frames = 0u64;
+    for job in rx {
+        let job = match job {
+            Ok(job) => job,
+            Err(err) => {
+                eprintln!("render failed at frame {frames}: {err}");
                 return 1;
             }
         };
-        frames.push(frame);
-    }
-
-    let manifest_path = match format {
-        Format::Mp4 => write_mp4(&doc, out, &frames),
-        Format::Png => write_pngs(&doc, out, &frames),
-    };
-    let manifest_path = match manifest_path {
-        Ok(path) => path,
-        Err(message) => {
-            eprintln!("{message}");
+        let write = match &mut sink {
+            Some(sink) => sink.write_frame(&job.frame).map_err(|e| e.to_string()),
+            None => save_png(&job.frame, &out.join(format!("frame_{frames:06}.png")))
+                .map_err(|e| e.to_string()),
+        };
+        if let Err(err) = write {
+            eprintln!("writing the output stopped: {err}");
             return 1;
         }
+        hashes.push(quillon_render_frame_hash(&job.frame));
+        frames += 1;
+    }
+    if let Some(sink) = sink {
+        if let Err(err) = sink.finish() {
+            eprintln!("encoding failed: {err}");
+            return 1;
+        }
+    }
+    let manifest_path = match format {
+        Format::Mp4 => manifest_path_for(out),
+        Format::Png => out.join("manifest.json"),
     };
+    if let Err(err) = write_manifest(doc.size.w, doc.size.h, &manifest_path, &hashes) {
+        eprintln!("cannot write {}: {err}", manifest_path.display());
+        return 1;
+    }
 
-    let frame_count = frames.len();
+    if let Some(cache) = &cache {
+        let (hits, misses) = cache.stats();
+        eprintln!("cache: {hits} hit(s), {misses} miss(es)");
+    }
     if json {
         let body = json!({
             "output": out,
             "manifest": manifest_path,
-            "frames": frame_count,
+            "frames": frames,
         });
         println!("{body}");
     } else {
-        println!("rendered {frame_count} frames -> {}", out.display());
+        println!("rendered {frames} frames -> {}", out.display());
         println!("frame manifest: {}", manifest_path.display());
     }
     0
-}
-
-fn write_mp4(
-    doc: &Document,
-    out: &Path,
-    frames: &[quillon_core::Frame],
-) -> Result<PathBuf, String> {
-    let mut sink = Mp4Sink::new(out, doc.size.w, doc.size.h, doc.fps)
-        .map_err(|err| format!("cannot start the encoder: {err}"))?;
-    for frame in frames {
-        sink.write_frame(frame)
-            .map_err(|err| format!("encoding stopped: {err}"))?;
-    }
-    sink.finish()
-        .map_err(|err| format!("encoding failed: {err}"))?;
-    let manifest_path = manifest_path_for(out);
-    write_manifest(doc.size.w, doc.size.h, &manifest_path, frames).map_err(|e| e.to_string())?;
-    Ok(manifest_path)
-}
-
-fn write_pngs(
-    doc: &Document,
-    out: &Path,
-    frames: &[quillon_core::Frame],
-) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(out).map_err(|e| format!("cannot create {}: {e}", out.display()))?;
-    for (i, frame) in frames.iter().enumerate() {
-        let path = out.join(format!("frame_{i:06}.png"));
-        save_png(frame, &path).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    }
-    let manifest_path = out.join("manifest.json");
-    write_manifest(doc.size.w, doc.size.h, &manifest_path, frames).map_err(|e| e.to_string())?;
-    Ok(manifest_path)
 }
 
 fn save_png(frame: &quillon_core::Frame, path: &Path) -> Result<(), image::ImageError> {
@@ -246,18 +318,12 @@ fn manifest_path_for(out: &Path) -> PathBuf {
     out.with_file_name(name)
 }
 
-fn write_manifest(
-    width: u32,
-    height: u32,
-    path: &Path,
-    frames: &[quillon_core::Frame],
-) -> std::io::Result<()> {
-    let hashes: Vec<_> = frames.iter().map(quillon_render_frame_hash).collect();
+fn write_manifest(width: u32, height: u32, path: &Path, hashes: &[String]) -> std::io::Result<()> {
     let body = json!({
         "renderer_version": RENDERER_VERSION,
         "width": width,
         "height": height,
-        "frame_count": frames.len(),
+        "frame_count": hashes.len(),
         "frames": hashes,
     });
     std::fs::write(path, serde_json::to_string_pretty(&body)? + "\n")

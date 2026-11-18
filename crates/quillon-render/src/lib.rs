@@ -7,10 +7,13 @@
 
 mod blend;
 mod lut;
+mod pipeline;
 mod prepare;
 mod text;
 mod transform;
 mod visuals;
+
+pub use pipeline::{CacheGet, CachePut, FrameJob, render_document_parallel};
 
 use blend::LinearCanvas;
 use quillon_core::document::{Document, RectElement, Scene};
@@ -32,6 +35,8 @@ pub enum RenderError {
     Asset { id: String, reason: String },
     #[error("tick {tick} is outside the document (0..{end})")]
     TickOutOfRange { tick: i64, end: i64 },
+    #[error("cannot run the render pipeline: {0}")]
+    Pool(String),
 }
 
 /// A prepared document: assets decoded, fonts loaded once.
