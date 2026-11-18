@@ -81,7 +81,15 @@ fn parallel_pipeline_matches_sequential_frames_in_order() {
         );
     }
 
-    let rx = render_document_parallel(&doc, base, 4, None, None).expect("pipeline starts");
+    let rx = render_document_parallel(
+        &doc,
+        base,
+        4,
+        std::sync::Arc::new(quillon_core::NullFrameSource),
+        None,
+        None,
+    )
+    .expect("pipeline starts");
     let parallel: Vec<_> = rx
         .into_iter()
         .map(|job| job.expect("parallel render"))
