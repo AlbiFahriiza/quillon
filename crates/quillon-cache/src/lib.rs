@@ -87,7 +87,7 @@ impl SessionKeys {
         // not inside a scene subtree.
         put_u32(&mut hasher, doc.size.w);
         put_u32(&mut hasher, doc.size.h);
-        put_str(&mut hasher, &doc.bg.as_hex());
+        put_str(&mut hasher, doc.bg.as_hex());
         put_str(
             &mut hasher,
             &serde_json::to_string(&doc.color_space).unwrap_or_default(),
@@ -97,11 +97,10 @@ impl SessionKeys {
         if let (Some(duration), Some(prev)) = (
             doc.scenes[scene_idx].crossfade_in(),
             scene_idx.checked_sub(1),
-        ) {
-            if local < duration {
-                put_scene(&mut hasher, &doc.scenes[prev]);
-                put_u64(&mut hasher, (doc.scenes[prev].duration + local) as u64);
-            }
+        ) && local < duration
+        {
+            put_scene(&mut hasher, &doc.scenes[prev]);
+            put_u64(&mut hasher, (doc.scenes[prev].duration + local) as u64);
         }
         for id in &self.scene_assets[scene_idx] {
             put_str(&mut hasher, id);
