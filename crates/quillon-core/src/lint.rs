@@ -238,6 +238,8 @@ mod tests {
             size: 48.0,
             color: Color::parse(color).unwrap(),
             align: Default::default(),
+            shadow: None,
+            clip: None,
             anim: None,
         })
     }
@@ -247,6 +249,7 @@ mod tests {
         let doc = doc_with(Scene {
             id: "s".into(),
             duration: crate::time::FLICKS_PER_SECOND * 5,
+            transition_in: None,
             elements: vec![text_el("hello", 960, 540, "#ffffff")],
         });
         assert!(lint_document(&doc).is_empty(), "{:?}", lint_document(&doc));
@@ -257,6 +260,7 @@ mod tests {
         let doc = doc_with(Scene {
             id: "s".into(),
             duration: crate::time::FLICKS_PER_SECOND * 5,
+            transition_in: None,
             elements: vec![text_el("hello", 960, 540, "#0a0a0a")],
         });
         let findings = lint_document(&doc);
@@ -271,6 +275,7 @@ mod tests {
         let doc = doc_with(Scene {
             id: "s".into(),
             duration: crate::time::FLICKS_PER_SECOND * 5,
+            transition_in: None,
             elements: vec![
                 Element::Rect(RectElement {
                     x: 0,
@@ -278,6 +283,10 @@ mod tests {
                     w: 1920,
                     h: 1080,
                     color: Color::parse("#f0f0f0").unwrap(),
+                    gradient: None,
+                    radius: None,
+                    shadow: None,
+                    clip: None,
                     anim: None,
                 }),
                 // White text over a light rect: fine against doc bg, wrong
@@ -297,12 +306,17 @@ mod tests {
         let doc = doc_with(Scene {
             id: "s".into(),
             duration: crate::time::FLICKS_PER_SECOND,
+            transition_in: None,
             elements: vec![Element::Rect(RectElement {
                 x: 5000,
                 y: 5000,
                 w: 100,
                 h: 100,
                 color: Color::from_rgb8(255, 255, 255),
+                gradient: None,
+                radius: None,
+                shadow: None,
+                clip: None,
                 anim: None,
             })],
         });
@@ -319,6 +333,7 @@ mod tests {
         let doc = doc_with(Scene {
             id: "s".into(),
             duration: crate::time::FLICKS_PER_SECOND,
+            transition_in: None,
             elements: vec![text_el("01234567890123456789", 50, 540, "#ffffff")],
         });
         let findings = lint_document(&doc);
@@ -335,6 +350,7 @@ mod tests {
         let doc = doc_with(Scene {
             id: "s".into(),
             duration: crate::time::FLICKS_PER_SECOND,
+            transition_in: None,
             elements: vec![text_el(long_text.trim(), 960, 540, "#ffffff")],
         });
         let findings = lint_document(&doc);

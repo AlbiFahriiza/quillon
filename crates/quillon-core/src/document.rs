@@ -71,6 +71,82 @@ pub enum Fit {
     Stretch,
 }
 
+/// How a scene enters: a hard cut (the default) or a crossfade blended in
+/// linear light over the previous scene's continuing frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TransitionKind {
+    Cut,
+    Crossfade,
+}
+
+/// The transition into a scene. It consumes the head of the incoming scene;
+/// the timeline stays the sum of scene durations (no overlap arithmetic).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Transition {
+    pub kind: TransitionKind,
+    /// In ticks. `0` for a cut; for a crossfade, `> 0` and `<=` the scene
+    /// duration.
+    pub duration: i64,
+}
+
+/// One color stop of a gradient. `at` is a position along the gradient axis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GradientStop {
+    /// In [0, 1]; stops must be strictly increasing in `at`.
+    pub at: f32,
+    pub color: Color,
+}
+
+/// A linear gradient fill. Colors are interpolated in linear light
+/// (research/T); `angle` follows screen space: 0 is left-to-right, 90 is
+/// top-to-bottom.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GradientDef {
+    /// Degrees, clockwise from the +x axis.
+    pub angle: f32,
+    /// At least two.
+    pub stops: Vec<GradientStop>,
+}
+
+/// A drop shadow cast by an element's silhouette, blurred in linear light
+/// and composited under the element.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowDef {
+    /// Horizontal offset in pixels, right-positive.
+    pub offset_x: f32,
+    /// Vertical offset in pixels, down-positive.
+    pub offset_y: f32,
+    /// Blur radius in pixels, [0, 512].
+    pub blur: f32,
+    pub color: Color,
+    /// Shadow opacity in [0, 1].
+    #[serde(default = "default_full")]
+    pub alpha: f32,
+}
+
+fn default_full() -> f32 {
+    1.0
+}
+
+/// A rectangular clip in element-author coordinates: rect and image origins
+/// are their top-left corner, text origin is its center. The clip travels
+/// with the element's transform and masks the element and its shadow.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClipRect {
+    pub x: i64,
+    pub y: i64,
+    /// Must be > 0.
+    pub w: i64,
+    /// Must be > 0.
+    pub h: i64,
+}
+
 /// A referenced asset. `src` is relative to the document's directory and must
 /// stay inside it (no absolute paths, no `..`); `sha256`, when present, pins
 /// the exact bytes.
@@ -158,10 +234,14 @@ pub struct TextElement {
     #[serde(default = "default_text_align")]
     pub align: TextAlign,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<ShadowDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<ClipRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anim: Option<Anim>,
 }
 
-/// A solid rectangle. `(x, y)` is the top-left corner.
+/// A solid or gradient-filled rectangle. `(x, y)` is the top-left corner.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RectElement {
@@ -171,6 +251,16 @@ pub struct RectElement {
     pub h: i64,
     #[serde(default = "default_text_color")]
     pub color: Color,
+    /// When present, the fill is this gradient (it wins over `color`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<GradientDef>,
+    /// Corner radius in pixels, clamped at render to half the shorter side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<ShadowDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<ClipRect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anim: Option<Anim>,
 }
@@ -187,6 +277,10 @@ pub struct ImageElement {
     pub h: i64,
     #[serde(default = "default_fit")]
     pub fit: Fit,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<ShadowDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<ClipRect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anim: Option<Anim>,
 }
@@ -218,8 +312,25 @@ pub struct Scene {
     pub id: String,
     /// In ticks, `> 0`.
     pub duration: i64,
+    /// How this scene enters; `None` means a hard cut. Only meaningful from
+    /// the second scene on (the first scene cannot fade from anything).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition_in: Option<Transition>,
     #[serde(default)]
     pub elements: Vec<Element>,
+}
+
+impl Scene {
+    /// Duration of the incoming crossfade, if this scene has one.
+    pub fn crossfade_in(&self) -> Option<i64> {
+        match self.transition_in {
+            Some(Transition {
+                kind: TransitionKind::Crossfade,
+                duration,
+            }) if duration > 0 => Some(duration),
+            _ => None,
+        }
+    }
 }
 
 /// The root document.
@@ -291,11 +402,13 @@ mod tests {
                 Scene {
                     id: "a".into(),
                     duration: 2 * 705_600_000,
+                    transition_in: None,
                     elements: vec![],
                 },
                 Scene {
                     id: "b".into(),
                     duration: 705_600_000,
+                    transition_in: None,
                     elements: vec![],
                 },
             ],

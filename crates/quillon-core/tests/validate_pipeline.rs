@@ -352,3 +352,164 @@ fn unpinned_asset_skips_hash_check() {
         .unwrap_or_else(|e| panic!("unpinned asset should pass: {e:?}"));
     assert!(doc.assets.contains_key("img"));
 }
+
+// --- v0.2 boundary tests: transitions, gradient, radius, shadow, clip ---
+
+/// The base document with a second scene carrying a valid crossfade.
+fn crossfade_json() -> String {
+    let json = valid_json().replace(
+        r##"            ]
+                }
+            ]
+        }"##,
+        r##"            ]
+                },
+                {
+                    "id": "s2",
+                    "duration": 705600000,
+                    "transition_in": { "kind": "crossfade", "duration": 352800000 },
+                    "elements": []
+                }
+            ]
+        }"##,
+    );
+    assert!(json.contains("s2"), "second scene must be injected");
+    json
+}
+
+#[test]
+fn valid_crossfade_on_second_scene_passes() {
+    let doc = validate_str(&crossfade_json(), Path::new(FIXTURES))
+        .unwrap_or_else(|e| panic!("valid crossfade rejected: {e:?}"));
+    assert_eq!(doc.scenes[1].crossfade_in(), Some(352_800_000));
+}
+
+#[test]
+fn crossfade_on_first_scene_is_rejected() {
+    let json = valid_json().replace(
+        r##"                    "id": "s1",
+                    "duration": 705600000,"##,
+        r##"                    "id": "s1",
+                    "duration": 705600000,
+                    "transition_in": { "kind": "crossfade", "duration": 705600000 },"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "transition" && e.path == "/scenes/0/transition_in"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn crossfade_duration_past_scene_end_is_rejected() {
+    let json = crossfade_json().replace(r#""duration": 352800000"#, r#""duration": 999999999"#);
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "transition" && e.path == "/scenes/1/transition_in/duration"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn crossfade_duration_zero_is_rejected() {
+    let json = crossfade_json().replace(r#""duration": 352800000"#, r#""duration": 0"#);
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "transition"), "{errors:?}");
+}
+
+#[test]
+fn cut_with_nonzero_duration_is_rejected() {
+    let json = crossfade_json().replace(
+        r#"{ "kind": "crossfade", "duration": 352800000 }"#,
+        r#"{ "kind": "cut", "duration": 5 }"#,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "transition"), "{errors:?}");
+}
+
+#[test]
+fn gradient_with_fewer_than_two_stops_is_rejected() {
+    let json = valid_json().replace(
+        r##"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64 }"##,
+        r##"{ "type": "rect", "x": 16, "y": 16, "w": 64, "h": 64,
+             "gradient": { "angle": 0, "stops": [ { "at": 0.0, "color": "#000000" } ] } }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "gradient" && e.path.ends_with("/gradient/stops")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn gradient_with_unsorted_stops_is_rejected() {
+    let json = valid_json().replace(
+        r##"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64 }"##,
+        r##"{ "type": "rect", "x": 16, "y": 16, "w": 64, "h": 64,
+             "gradient": { "angle": 0, "stops": [ { "at": 1.0, "color": "#ffffff" }, { "at": 0.0, "color": "#000000" } ] } }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "gradient"), "{errors:?}");
+}
+
+#[test]
+fn gradient_stop_outside_unit_range_is_rejected() {
+    let json = valid_json().replace(
+        r##"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64 }"##,
+        r##"{ "type": "rect", "x": 16, "y": 16, "w": 64, "h": 64,
+             "gradient": { "angle": 0, "stops": [ { "at": -0.5, "color": "#000000" }, { "at": 1.0, "color": "#ffffff" } ] } }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "gradient" && e.path.ends_with("/stops/0/at")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn oversize_radius_is_rejected() {
+    let json = valid_json().replace(
+        r##"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64 }"##,
+        r##"{ "type": "rect", "x": 16, "y": 16, "w": 64, "h": 64, "radius": 20000.0 }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "radius"), "{errors:?}");
+}
+
+#[test]
+fn oversize_shadow_blur_is_rejected() {
+    let json = valid_json().replace(
+        r##""size": 24.0 }"##,
+        r##""size": 24.0, "shadow": { "offset_x": 0.0, "offset_y": 0.0, "blur": 4096.0, "color": "#000000" } }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "shadow"), "{errors:?}");
+}
+
+#[test]
+fn shadow_alpha_above_one_is_rejected() {
+    let json = valid_json().replace(
+        r##""size": 24.0 }"##,
+        r##""size": 24.0, "shadow": { "offset_x": 0.0, "offset_y": 0.0, "blur": 4.0, "color": "#000000", "alpha": 1.5 } }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "shadow"), "{errors:?}");
+}
+
+#[test]
+fn empty_clip_rect_is_rejected() {
+    let json = valid_json().replace(
+        r##"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64 }"##,
+        r##"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64, "clip": { "x": 0, "y": 0, "w": 0, "h": 10 } }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "clip"), "{errors:?}");
+}

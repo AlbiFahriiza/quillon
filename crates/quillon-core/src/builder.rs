@@ -5,8 +5,8 @@
 
 use crate::color::Color;
 use crate::document::{
-    Anim, Asset, ColorSpace, Document, Fit, ImageElement, RectElement, Scene, Size, TextAlign,
-    TextElement,
+    Anim, Asset, ClipRect, ColorSpace, Document, Fit, GradientDef, ImageElement, RectElement,
+    Scene, ShadowDef, Size, TextAlign, TextElement,
 };
 use crate::time::FLICKS_PER_SECOND;
 use std::collections::BTreeMap;
@@ -70,6 +70,8 @@ impl TextElement {
             size: 48.0,
             color: Color::from_rgb8(255, 255, 255),
             align: TextAlign::Center,
+            shadow: None,
+            clip: None,
             anim: None,
         }
     }
@@ -90,6 +92,16 @@ impl TextElement {
         self
     }
 
+    pub fn shadow(mut self, shadow: ShadowDef) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+
+    pub fn clip(mut self, clip: ClipRect) -> Self {
+        self.clip = Some(clip);
+        self
+    }
+
     pub fn anim(mut self, anim: Anim) -> Self {
         self.anim = Some(anim);
         self
@@ -104,12 +116,36 @@ impl RectElement {
             w,
             h,
             color: Color::from_rgb8(255, 255, 255),
+            gradient: None,
+            radius: None,
+            shadow: None,
+            clip: None,
             anim: None,
         }
     }
 
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
+        self
+    }
+
+    pub fn gradient(mut self, gradient: GradientDef) -> Self {
+        self.gradient = Some(gradient);
+        self
+    }
+
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = Some(radius);
+        self
+    }
+
+    pub fn shadow(mut self, shadow: ShadowDef) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+
+    pub fn clip(mut self, clip: ClipRect) -> Self {
+        self.clip = Some(clip);
         self
     }
 
@@ -128,12 +164,24 @@ impl ImageElement {
             w,
             h,
             fit: Fit::Contain,
+            shadow: None,
+            clip: None,
             anim: None,
         }
     }
 
     pub fn fit(mut self, fit: Fit) -> Self {
         self.fit = fit;
+        self
+    }
+
+    pub fn shadow(mut self, shadow: ShadowDef) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+
+    pub fn clip(mut self, clip: ClipRect) -> Self {
+        self.clip = Some(clip);
         self
     }
 
@@ -147,7 +195,7 @@ impl ImageElement {
 mod tests {
     use super::*;
     use crate::canonical::canonical_json;
-    use crate::document::Element;
+    use crate::document::{Element, Transition, TransitionKind};
 
     #[test]
     fn builder_output_equals_hand_written_json() {
@@ -163,6 +211,7 @@ mod tests {
             .scene(Scene {
                 id: "s1".into(),
                 duration: FLICKS_PER_SECOND,
+                transition_in: None,
                 elements: vec![
                     Element::Rect(
                         RectElement::new(0, 0, 1920, 1080).color(Color::from_rgb8(20, 30, 40)),
@@ -206,6 +255,117 @@ mod tests {
         assert_eq!(
             canonical_json(&built).unwrap(),
             canonical_json(&parsed).unwrap()
+        );
+        assert_eq!(built, parsed);
+    }
+
+    #[test]
+    fn builder_output_equals_hand_written_json_v02_features() {
+        let gradient = GradientDef {
+            angle: 90.0,
+            stops: vec![
+                crate::document::GradientStop {
+                    at: 0.0,
+                    color: Color::from_rgb8(10, 10, 10),
+                },
+                crate::document::GradientStop {
+                    at: 1.0,
+                    color: Color::from_rgb8(240, 240, 240),
+                },
+            ],
+        };
+        let built = DocumentBuilder::new(Size { w: 640, h: 360 })
+            .asset(
+                "img",
+                Asset::Image {
+                    src: "assets/dot.png".into(),
+                    sha256: None,
+                },
+            )
+            .scene(Scene {
+                id: "s1".into(),
+                duration: FLICKS_PER_SECOND,
+                transition_in: None,
+                elements: vec![Element::Rect(
+                    RectElement::new(40, 40, 400, 200)
+                        .gradient(gradient)
+                        .radius(12.0),
+                )],
+            })
+            .scene(Scene {
+                id: "s2".into(),
+                duration: FLICKS_PER_SECOND,
+                transition_in: Some(Transition {
+                    kind: TransitionKind::Crossfade,
+                    duration: FLICKS_PER_SECOND / 2,
+                }),
+                elements: vec![
+                    Element::Text(TextElement::new("shadowed", "body").at(320, 180).shadow(
+                        ShadowDef {
+                            offset_x: 2.0,
+                            offset_y: 4.0,
+                            blur: 8.0,
+                            color: Color::from_rgb8(0, 0, 0),
+                            alpha: 0.5,
+                        },
+                    )),
+                    Element::Image(ImageElement::new("img", 10, 10, 50, 50).clip(ClipRect {
+                        x: 0,
+                        y: 0,
+                        w: 25,
+                        h: 50,
+                    })),
+                ],
+            })
+            .build();
+
+        // r## delimiters: the JSON contains "#rrggbb" colors.
+        let hand_written = r##"{
+            "v": 1,
+            "timebase": 705600000,
+            "size": { "w": 640, "h": 360 },
+            "fps": 30,
+            "color_space": "srgb",
+            "bit_depth": 8,
+            "bg": "#000000",
+            "assets": {
+                "img": { "type": "image", "src": "assets/dot.png" }
+            },
+            "scenes": [
+                {
+                    "id": "s1",
+                    "duration": 705600000,
+                    "elements": [
+                        {
+                            "type": "rect", "x": 40, "y": 40, "w": 400, "h": 200, "color": "#ffffff",
+                            "gradient": { "angle": 90.0, "stops": [ { "at": 0.0, "color": "#0a0a0a" }, { "at": 1.0, "color": "#f0f0f0" } ] },
+                            "radius": 12.0
+                        }
+                    ]
+                },
+                {
+                    "id": "s2",
+                    "duration": 705600000,
+                    "transition_in": { "kind": "crossfade", "duration": 352800000 },
+                    "elements": [
+                        {
+                            "type": "text", "text": "shadowed", "font": "body", "x": 320, "y": 180, "size": 48.0, "color": "#ffffff", "align": "center",
+                            "shadow": { "offset_x": 2.0, "offset_y": 4.0, "blur": 8.0, "color": "#000000", "alpha": 0.5 }
+                        },
+                        {
+                            "type": "image", "asset": "img", "x": 10, "y": 10, "w": 50, "h": 50, "fit": "contain",
+                            "clip": { "x": 0, "y": 0, "w": 25, "h": 50 }
+                        }
+                    ]
+                }
+            ]
+        }"##;
+
+        let parsed: Document = serde_json::from_str(hand_written).unwrap();
+        assert_eq!(
+            canonical_json(&built).unwrap(),
+            canonical_json(&parsed).unwrap(),
+            "builder and hand-written v0.2 documents must canonicalize identically"
         );
         assert_eq!(built, parsed);
     }

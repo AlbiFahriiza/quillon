@@ -40,3 +40,10 @@ pub const MAX_DIMENSION: u32 = 7680;
 pub const MAX_FPS: u32 = 240;
 pub const MAX_ID_LEN: usize = 128;
 pub const MAX_KEYS_PER_TRACK: usize = 64;
+
+/// Largest accepted shadow blur radius in pixels (plan §11: bounded input).
+pub const MAX_BLUR_PX: f32 = 512.0;
+/// Largest accepted corner radius in pixels.
+pub const MAX_RADIUS_PX: f32 = 10_000.0;
+/// Most gradient stops accepted on one fill.
+pub const MAX_GRADIENT_STOPS: usize = 32;

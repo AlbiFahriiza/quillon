@@ -16,8 +16,9 @@ use crate::color::Color;
 use crate::document::{Anim, Asset, Document, Element, Scene, Track};
 use crate::schema::document_schema;
 use crate::{
-    DOCUMENT_VERSION, MAX_ASSETS, MAX_DIMENSION, MAX_ELEMENTS_PER_SCENE, MAX_FPS, MAX_ID_LEN,
-    MAX_KEYS_PER_TRACK, MAX_SCENES, MAX_TEXT_LEN, MAX_TEXT_SIZE, MIN_DIMENSION, time,
+    DOCUMENT_VERSION, MAX_ASSETS, MAX_BLUR_PX, MAX_DIMENSION, MAX_ELEMENTS_PER_SCENE, MAX_FPS,
+    MAX_GRADIENT_STOPS, MAX_ID_LEN, MAX_KEYS_PER_TRACK, MAX_RADIUS_PX, MAX_SCENES, MAX_TEXT_LEN,
+    MAX_TEXT_SIZE, MIN_DIMENSION, time,
 };
 use jsonschema::validator_for;
 use serde::{Deserialize, Serialize};
@@ -230,7 +231,14 @@ fn validate_scenes(doc: &Document, errors: &mut Vec<ValidationError>) {
     }
     let mut ids: HashSet<&str> = HashSet::new();
     for (i, scene) in doc.scenes.iter().enumerate() {
-        validate_scene(scene, &format!("/scenes/{i}"), &mut ids, doc, errors);
+        validate_scene(
+            scene,
+            &format!("/scenes/{i}"),
+            &mut ids,
+            i == 0,
+            doc,
+            errors,
+        );
     }
 }
 
@@ -238,6 +246,7 @@ fn validate_scene<'a>(
     scene: &'a Scene,
     base: &str,
     ids: &mut HashSet<&'a str>,
+    is_first: bool,
     doc: &Document,
     errors: &mut Vec<ValidationError>,
 ) {
@@ -262,6 +271,7 @@ fn validate_scene<'a>(
             "scene duration must be a positive number of ticks",
         ));
     }
+    validate_transition(scene, base, is_first, errors);
     if scene.elements.len() > MAX_ELEMENTS_PER_SCENE {
         errors.push(ValidationError::new(
             format!("{base}/elements"),
@@ -271,6 +281,47 @@ fn validate_scene<'a>(
     }
     for (j, element) in scene.elements.iter().enumerate() {
         validate_element(element, &format!("{base}/elements/{j}"), scene, doc, errors);
+    }
+}
+
+/// Plan §5.2: a crossfade needs a previous scene to fade from and must fit
+/// inside the scene it opens; a cut has no duration.
+fn validate_transition(
+    scene: &Scene,
+    base: &str,
+    is_first: bool,
+    errors: &mut Vec<ValidationError>,
+) {
+    let Some(t) = &scene.transition_in else {
+        return;
+    };
+    let path = format!("{base}/transition_in");
+    if is_first && t.kind == crate::document::TransitionKind::Crossfade {
+        errors.push(ValidationError::new(
+            &path,
+            "transition",
+            "the first scene has nothing to crossfade from; use a cut or drop transition_in",
+        ));
+    }
+    match t.kind {
+        crate::document::TransitionKind::Cut => {
+            if t.duration != 0 {
+                errors.push(ValidationError::new(
+                    format!("{path}/duration"),
+                    "transition",
+                    "a cut takes no time; duration must be 0",
+                ));
+            }
+        }
+        crate::document::TransitionKind::Crossfade => {
+            if t.duration <= 0 || t.duration > scene.duration {
+                errors.push(ValidationError::new(
+                    format!("{path}/duration"),
+                    "transition",
+                    "crossfade duration must be within (0, the scene duration]",
+                ));
+            }
+        }
     }
 }
 
@@ -319,6 +370,12 @@ fn validate_text(
         ));
     }
     push_color_error(&t.color, &format!("{path}/color"), errors);
+    if let Some(s) = &t.shadow {
+        validate_shadow(s, &format!("{path}/shadow"), errors);
+    }
+    if let Some(c) = &t.clip {
+        validate_clip(c, &format!("{path}/clip"), errors);
+    }
     match doc.assets.get(&t.font) {
         Some(Asset::Font { .. }) => {}
         Some(_) => errors.push(ValidationError::new(
@@ -343,6 +400,91 @@ fn validate_rect(r: &crate::document::RectElement, path: &str, errors: &mut Vec<
         ));
     }
     push_color_error(&r.color, &format!("{path}/color"), errors);
+    if let Some(g) = &r.gradient {
+        validate_gradient(g, &format!("{path}/gradient"), errors);
+    }
+    if let Some(radius) = r.radius {
+        if !(0.0..=MAX_RADIUS_PX).contains(&radius) {
+            errors.push(ValidationError::new(
+                format!("{path}/radius"),
+                "radius",
+                format!("corner radius must be within [0, {MAX_RADIUS_PX}]"),
+            ));
+        }
+    }
+    if let Some(s) = &r.shadow {
+        validate_shadow(s, &format!("{path}/shadow"), errors);
+    }
+    if let Some(c) = &r.clip {
+        validate_clip(c, &format!("{path}/clip"), errors);
+    }
+}
+
+/// Gradient stops must be at least two, strictly increasing, inside [0, 1].
+fn validate_gradient(
+    g: &crate::document::GradientDef,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if g.stops.len() < 2 {
+        errors.push(ValidationError::new(
+            format!("{path}/stops"),
+            "gradient",
+            "a gradient needs at least two stops",
+        ));
+    }
+    if g.stops.len() > MAX_GRADIENT_STOPS {
+        errors.push(ValidationError::new(
+            format!("{path}/stops"),
+            "limit",
+            format!("more than {MAX_GRADIENT_STOPS} gradient stops are not accepted"),
+        ));
+    }
+    for (i, stop) in g.stops.iter().enumerate() {
+        if !(0.0..=1.0).contains(&stop.at) {
+            errors.push(ValidationError::new(
+                format!("{path}/stops/{i}/at"),
+                "gradient",
+                "gradient stop positions must be within [0, 1]",
+            ));
+        }
+        if i > 0 && stop.at <= g.stops[i - 1].at {
+            errors.push(ValidationError::new(
+                format!("{path}/stops/{i}/at"),
+                "gradient",
+                "gradient stop positions must strictly increase",
+            ));
+        }
+        push_color_error(&stop.color, &format!("{path}/stops/{i}/color"), errors);
+    }
+}
+
+fn validate_shadow(s: &crate::document::ShadowDef, path: &str, errors: &mut Vec<ValidationError>) {
+    if !(0.0..=MAX_BLUR_PX).contains(&s.blur) {
+        errors.push(ValidationError::new(
+            format!("{path}/blur"),
+            "shadow",
+            format!("shadow blur must be within [0, {MAX_BLUR_PX}]"),
+        ));
+    }
+    if !(0.0..=1.0).contains(&s.alpha) {
+        errors.push(ValidationError::new(
+            format!("{path}/alpha"),
+            "shadow",
+            "shadow alpha must be within [0, 1]",
+        ));
+    }
+    push_color_error(&s.color, &format!("{path}/color"), errors);
+}
+
+fn validate_clip(c: &crate::document::ClipRect, path: &str, errors: &mut Vec<ValidationError>) {
+    if c.w < 1 || c.h < 1 {
+        errors.push(ValidationError::new(
+            path,
+            "clip",
+            "clip width and height must be at least 1",
+        ));
+    }
 }
 
 fn validate_image(
@@ -357,6 +499,12 @@ fn validate_image(
             "image-size",
             "image width and height must be at least 1",
         ));
+    }
+    if let Some(s) = &img.shadow {
+        validate_shadow(s, &format!("{path}/shadow"), errors);
+    }
+    if let Some(c) = &img.clip {
+        validate_clip(c, &format!("{path}/clip"), errors);
     }
     match doc.assets.get(&img.asset) {
         Some(Asset::Image { .. }) => {}

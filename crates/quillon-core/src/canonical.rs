@@ -33,12 +33,17 @@ mod tests {
             .scene(Scene {
                 id: "s1".into(),
                 duration: 705_600_000,
+                transition_in: None,
                 elements: vec![Element::Rect(RectElement {
                     x: 100,
                     y: 100,
                     w: 200,
                     h: 80,
                     color: crate::color::Color::from_rgb8(255, 0, 0),
+                    gradient: None,
+                    radius: None,
+                    shadow: None,
+                    clip: None,
                     anim: None,
                 })],
             })
