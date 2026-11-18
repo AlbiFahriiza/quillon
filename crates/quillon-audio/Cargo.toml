@@ -1,0 +1,13 @@
+[package]
+name = "quillon-audio"
+version.workspace = true
+edition = "2024"
+description = "Audio pipeline for Quillon: symphonia decode, rubato resample, tick-domain mixing, EBU R128 loudness (plan §12 v0.3)."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+quillon-core = { path = "../quillon-core" }
+symphonia = { workspace = true }
+rubato = { workspace = true }
+ebur128 = { workspace = true }
+thiserror = { workspace = true }

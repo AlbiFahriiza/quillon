@@ -14,6 +14,7 @@ quillon-core = { path = "crates/quillon-core", version = "0.2.0" }
 quillon-render = { path = "crates/quillon-render", version = "0.2.0" }
 quillon-media = { path = "crates/quillon-media", version = "0.2.0" }
 quillon-cache = { path = "crates/quillon-cache", version = "0.2.0" }
+quillon-audio = { path = "crates/quillon-audio", version = "0.2.0" }
 
 # Versions verified against the crates.io API on 2026-11-18 (plan §16.4).
 serde = { version = "1.0.229", features = ["derive"] }
@@ -31,6 +32,9 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "io-util", "
 notify = "8.2.2"
 anyhow = "1.0.104"
 sha2 = "0.11.1"
+symphonia = { version = "0.6.1", features = ["mp3", "flac", "isomp4", "aac"] }
+rubato = "5.1.0"
+ebur128 = "0.1.11"
 
 # Debug builds without debuginfo: keeps target/ small on constrained disks
 # (5.9 GB vs ~1.5 GB measured with full debuginfo) and speeds CI.
