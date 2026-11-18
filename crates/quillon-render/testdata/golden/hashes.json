@@ -17,7 +17,7 @@
       "ba30ac35328a2e53179316eadfbc5ab74c1e094d186b0d5302a5db69b9e45f22",
       "ba30ac35328a2e53179316eadfbc5ab74c1e094d186b0d5302a5db69b9e45f22"
     ],
-    "renderer_version": 1
+    "renderer_version": 2
   },
   "static.json": {
     "frames": [
@@ -25,7 +25,7 @@
       "03806971bdf5610862d22b57141c848e85be5aae0e81ce1f44cd355aa7ca5ce6",
       "03806971bdf5610862d22b57141c848e85be5aae0e81ce1f44cd355aa7ca5ce6"
     ],
-    "renderer_version": 1
+    "renderer_version": 2
   },
   "text.json": {
     "frames": [
@@ -35,6 +35,17 @@
       "48733935d33cef30876e45470758a8a81f1fa1561944e0b4029e6573c146892c",
       "d8414c2fd987621ddfe834fb705b27cc65fe455531a16718bf85102866365a20"
     ],
-    "renderer_version": 1
+    "renderer_version": 2
+  },
+  "visuals.json": {
+    "frames": [
+      "30a0796ae5f0dca5b5c39d724c49372f384ffac38ed5aa6df6218cbe7f74436b",
+      "30a0796ae5f0dca5b5c39d724c49372f384ffac38ed5aa6df6218cbe7f74436b",
+      "30a0796ae5f0dca5b5c39d724c49372f384ffac38ed5aa6df6218cbe7f74436b",
+      "30a0796ae5f0dca5b5c39d724c49372f384ffac38ed5aa6df6218cbe7f74436b",
+      "4d730cee5736c06219a70dcb30ec182e22120ff710208bc142f55a5b886465af",
+      "844adc1f7626a216f4638a187ae6e248907123c2d2f38fe5d29040da61f672fa"
+    ],
+    "renderer_version": 2
   }
 }

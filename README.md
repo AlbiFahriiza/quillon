@@ -5,17 +5,25 @@ programmatically. One Rust binary, no browser, no Node, no per-render license.
 The interchange format is a schema-validated JSON document — designed so AI
 agents can compose and edit video with validated output instead of guessing.
 
-Status: **v0.1 (Foundation) in development.** Scope and architecture:
+Status: **v0.2 (Motion & Preview) in development.** Scope and architecture:
 [`myquillonplan.md`](myquillonplan.md); underlying research in [`research/`](research/).
 
-## What v0.1 does
+## What it does
 
 - `quillon validate doc.json` — structural + semantic validation with
   JSON-pointer error paths, plus semantic lint (low contrast, off-canvas
   elements, text past the edge, unreadable scenes).
 - `quillon render doc.json -o out.mp4` — deterministic CPU rendering
   (tiny-skia + cosmic-text, linear-light compositing), MP4 via the system
-  ffmpeg binary, PNG frame export, and a per-frame sha256 manifest.
+  ffmpeg binary, PNG frame export, and a per-frame sha256 manifest. Frames
+  render in parallel (`--workers`) and stream straight into the encoder, so
+  memory stays bounded on long videos.
+- `quillon render --cache-dir <dir>` — content-addressed frame cache: a
+  re-render computes only frames whose scene content changed (edit one
+  scene, re-render that scene).
+- `quillon preview doc.json` — a localhost filmstrip of the draft
+  (half-resolution, same render path as the export) that reloads when the
+  document is saved. Serves on 127.0.0.1 only.
 - `quillon-core` — the document model, JSON Schema, validation, and builder
   API as a library.
 
@@ -28,13 +36,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-MP4 rendering requires `ffmpeg` on the PATH (PNG rendering does not).
+MP4 rendering requires `ffmpeg` on the PATH (PNG rendering and preview do
+not).
 
 ## CLI contract
 
 ```
 quillon validate <doc.json> [--json] [--allow-lint]
-quillon render <doc.json> -o <out> [--format png|mp4] [--json]
+quillon render <doc.json> -o <out> [--format png|mp4] [--workers N]
+                 [--cache-dir <dir>] [--json]
+quillon preview <doc.json> [--port N]
 ```
 
 Exit codes: `0` success · `2` invalid document (errors carry JSON pointers) ·
@@ -47,7 +58,11 @@ Time is integer ticks (flicks): `705600000` per second, so 24/25/30/50/60 fps
 are all exact. Colors are authored as sRGB hex and composited in linear light.
 Elements: `text`, `rect`, `image`. Animatable properties: `opacity`,
 `translate_x`, `translate_y`, `scale`, `rotate` with keyframes and 10 easing
-curves. The full schema ships as [`docs/schema.json`](docs/schema.json)
+curves. Scenes transition with `cut` (the default) or `crossfade`, blended in
+linear light over the previous scene. Rects fill with a solid color or a
+linear `gradient` (stops interpolated in linear light) and take a corner
+`radius`; any element can carry a blurred `shadow` and a rectangular `clip`.
+The full schema ships as [`docs/schema.json`](docs/schema.json)
 (regenerated with `cargo xtask export-schema`).
 
 The same document always renders to identical frame hashes on the same

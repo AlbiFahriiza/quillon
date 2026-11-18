@@ -3,17 +3,17 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/AlbiFahriiza/quillon"
 rust-version = "1.85"
 
 [workspace.dependencies]
-quillon-core = { path = "crates/quillon-core", version = "0.1.0" }
-quillon-render = { path = "crates/quillon-render", version = "0.1.0" }
-quillon-media = { path = "crates/quillon-media", version = "0.1.0" }
-quillon-cache = { path = "crates/quillon-cache", version = "0.1.0" }
+quillon-core = { path = "crates/quillon-core", version = "0.2.0" }
+quillon-render = { path = "crates/quillon-render", version = "0.2.0" }
+quillon-media = { path = "crates/quillon-media", version = "0.2.0" }
+quillon-cache = { path = "crates/quillon-cache", version = "0.2.0" }
 
 # Versions verified against the crates.io API on 2026-11-18 (plan §16.4).
 serde = { version = "1.0.229", features = ["derive"] }

@@ -1,6 +1,6 @@
 [package]
 name = "quillon-cache"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 description = "Content-addressed frame cache for Quillon: per-frame keys over document subtrees, renderer version, and asset content hashes (research/G)."
 license = "MIT OR Apache-2.0"

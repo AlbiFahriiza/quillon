@@ -26,6 +26,9 @@ Direct dependencies (license strings verified against the crates.io API on
   thiserror 2.0.21         MIT OR Apache-2.0
   anyhow 1.0.104           MIT OR Apache-2.0
   sha2 0.11.1              MIT OR Apache-2.0
+  rayon 1.12.0             MIT OR Apache-2.0
+  tokio 1.54.1             MIT
+  notify 8.2.2             CC0-1.0
 
 Test fixtures: DejaVu Sans (test fonts) is used under its free license
 (Bitstream Vera / Public Domain dual licensing); see

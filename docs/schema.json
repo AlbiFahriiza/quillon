@@ -108,6 +108,37 @@
         }
       ]
     },
+    "ClipRect": {
+      "additionalProperties": false,
+      "description": "A rectangular clip in element-author coordinates: rect and image origins\nare their top-left corner, text origin is its center. The clip travels\nwith the element's transform and masks the element and its shadow.",
+      "properties": {
+        "h": {
+          "description": "Must be > 0.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "w": {
+          "description": "Must be > 0.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "x": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "y": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "type": "object"
+    },
     "Color": {
       "type": "string"
     },
@@ -155,6 +186,16 @@
                 }
               ]
             },
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipRect"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "color": {
               "$ref": "#/$defs/Color",
               "default": "#ffffff"
@@ -162,6 +203,16 @@
             "font": {
               "description": "Key of a `font` asset.",
               "type": "string"
+            },
+            "shadow": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ShadowDef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "size": {
               "description": "Font size in pixels, (0, 512].",
@@ -197,7 +248,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "A solid rectangle. `(x, y)` is the top-left corner.",
+          "description": "A solid or gradient-filled rectangle. `(x, y)` is the top-left corner.",
           "properties": {
             "anim": {
               "anyOf": [
@@ -209,13 +260,52 @@
                 }
               ]
             },
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipRect"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "color": {
               "$ref": "#/$defs/Color",
               "default": "#ffffff"
             },
+            "gradient": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GradientDef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "When present, the fill is this gradient (it wins over `color`)."
+            },
             "h": {
               "format": "int64",
               "type": "integer"
+            },
+            "radius": {
+              "description": "Corner radius in pixels, clamped at render to half the shorter side.",
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "shadow": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ShadowDef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": {
               "const": "rect",
@@ -261,6 +351,16 @@
               "description": "Key of an `image` asset.",
               "type": "string"
             },
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipRect"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "fit": {
               "$ref": "#/$defs/Fit",
               "default": "contain"
@@ -268,6 +368,16 @@
             "h": {
               "format": "int64",
               "type": "integer"
+            },
+            "shadow": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ShadowDef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "type": {
               "const": "image",
@@ -306,6 +416,48 @@
         "stretch"
       ],
       "type": "string"
+    },
+    "GradientDef": {
+      "additionalProperties": false,
+      "description": "A linear gradient fill. Colors are interpolated in linear light\n(research/T); `angle` follows screen space: 0 is left-to-right, 90 is\ntop-to-bottom.",
+      "properties": {
+        "angle": {
+          "description": "Degrees, clockwise from the +x axis.",
+          "format": "float",
+          "type": "number"
+        },
+        "stops": {
+          "description": "At least two.",
+          "items": {
+            "$ref": "#/$defs/GradientStop"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "angle",
+        "stops"
+      ],
+      "type": "object"
+    },
+    "GradientStop": {
+      "additionalProperties": false,
+      "description": "One color stop of a gradient. `at` is a position along the gradient axis.",
+      "properties": {
+        "at": {
+          "description": "In [0, 1]; stops must be strictly increasing in `at`.",
+          "format": "float",
+          "type": "number"
+        },
+        "color": {
+          "$ref": "#/$defs/Color"
+        }
+      },
+      "required": [
+        "at",
+        "color"
+      ],
+      "type": "object"
     },
     "Key": {
       "additionalProperties": false,
@@ -357,11 +509,59 @@
         "id": {
           "description": "Unique, non-empty, at most 128 bytes.",
           "type": "string"
+        },
+        "transition_in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Transition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How this scene enters; `None` means a hard cut. Only meaningful from\nthe second scene on (the first scene cannot fade from anything)."
         }
       },
       "required": [
         "id",
         "duration"
+      ],
+      "type": "object"
+    },
+    "ShadowDef": {
+      "additionalProperties": false,
+      "description": "A drop shadow cast by an element's silhouette, blurred in linear light\nand composited under the element.",
+      "properties": {
+        "alpha": {
+          "default": 1.0,
+          "description": "Shadow opacity in [0, 1].",
+          "format": "float",
+          "type": "number"
+        },
+        "blur": {
+          "description": "Blur radius in pixels, [0, 512].",
+          "format": "float",
+          "type": "number"
+        },
+        "color": {
+          "$ref": "#/$defs/Color"
+        },
+        "offset_x": {
+          "description": "Horizontal offset in pixels, right-positive.",
+          "format": "float",
+          "type": "number"
+        },
+        "offset_y": {
+          "description": "Vertical offset in pixels, down-positive.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "offset_x",
+        "offset_y",
+        "blur",
+        "color"
       ],
       "type": "object"
     },
@@ -411,6 +611,33 @@
         "keys"
       ],
       "type": "object"
+    },
+    "Transition": {
+      "additionalProperties": false,
+      "description": "The transition into a scene. It consumes the head of the incoming scene;\nthe timeline stays the sum of scene durations (no overlap arithmetic).",
+      "properties": {
+        "duration": {
+          "description": "In ticks. `0` for a cut; for a crossfade, `> 0` and `<=` the scene\nduration.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/TransitionKind"
+        }
+      },
+      "required": [
+        "kind",
+        "duration"
+      ],
+      "type": "object"
+    },
+    "TransitionKind": {
+      "description": "How a scene enters: a hard cut (the default) or a crossfade blended in\nlinear light over the previous scene's continuing frames.",
+      "enum": [
+        "cut",
+        "crossfade"
+      ],
+      "type": "string"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
