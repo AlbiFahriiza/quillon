@@ -1,0 +1,11 @@
+[package]
+name = "quillon-cache"
+version = "0.1.0"
+edition = "2024"
+description = "Content-addressed frame cache for Quillon: per-frame keys over document subtrees, renderer version, and asset content hashes (research/G)."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+quillon-core = { path = "../quillon-core" }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
