@@ -6,6 +6,7 @@ use crate::RenderError;
 use crate::blend::RgbaLayer;
 use image::imageops::{FilterType, crop_imm, resize};
 use quillon_core::document::{Asset, Document, Fit};
+use quillon_core::frame_source::Frame;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -32,13 +33,9 @@ pub fn prepare(doc: &Document, base_dir: &Path) -> Result<PreparedAssets, Render
     let mut fonts = BTreeMap::new();
     let mut decoded: BTreeMap<String, image::RgbaImage> = BTreeMap::new();
     for (id, asset) in &doc.assets {
-        let path = base_dir.join(asset.src());
-        let bytes = std::fs::read(&path).map_err(|e| RenderError::Asset {
-            id: id.clone(),
-            reason: e.to_string(),
-        })?;
         match asset {
             Asset::Image { .. } => {
+                let bytes = read_asset(base_dir, asset.src(), id)?;
                 let img = image::load_from_memory(&bytes).map_err(|e| RenderError::Asset {
                     id: id.clone(),
                     reason: e.to_string(),
@@ -46,8 +43,14 @@ pub fn prepare(doc: &Document, base_dir: &Path) -> Result<PreparedAssets, Render
                 decoded.insert(id.clone(), img.to_rgba8());
             }
             Asset::Font { .. } => {
+                let bytes = read_asset(base_dir, asset.src(), id)?;
                 fonts.insert(id.clone(), probe_family_name(&bytes, id)?);
             }
+            // Media assets are not decoded here: video frames arrive through
+            // the document's FrameSource at render time (plan §6.2 — render
+            // must not depend on media), audio through the audio pipeline.
+            // Validation has already checked their existence.
+            Asset::Video { .. } | Asset::Audio { .. } => {}
         }
     }
 
@@ -107,6 +110,23 @@ fn probe_family_name(bytes: &[u8], id: &str) -> Result<String, RenderError> {
             id: id.to_string(),
             reason: "font has no family name".into(),
         })
+}
+
+/// Read an asset file under `base_dir`.
+fn read_asset(base_dir: &Path, src: &str, id: &str) -> Result<Vec<u8>, RenderError> {
+    std::fs::read(base_dir.join(src)).map_err(|e| RenderError::Asset {
+        id: id.to_string(),
+        reason: e.to_string(),
+    })
+}
+
+/// Fit a decoded video frame into a destination box: the same math, filter,
+/// and offset contract as image content, so both element kinds place their
+/// pixels identically.
+pub fn fit_frame(source: &Frame, box_w: i64, box_h: i64, fit: Fit) -> ImageContent {
+    let img = image::RgbaImage::from_raw(source.width, source.height, source.rgba.clone())
+        .expect("frame buffer length matches its dimensions");
+    fit_image(&img, box_w, box_h, fit)
 }
 
 /// Fit a decoded image into a destination box.

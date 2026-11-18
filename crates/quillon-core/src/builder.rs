@@ -5,8 +5,9 @@
 
 use crate::color::Color;
 use crate::document::{
-    Anim, Asset, ClipRect, ColorSpace, Document, Fit, GradientDef, ImageElement, RectElement,
-    Scene, ShadowDef, Size, TextAlign, TextElement,
+    Anim, Asset, AudioTrack, ClipRect, ColorSpace, Document, FadeDef, FadeKind, Fit, GradientDef,
+    ImageElement, RectElement, Scene, ShadowDef, Size, SourceRange, TextAlign, TextElement,
+    VideoElement,
 };
 use crate::time::FLICKS_PER_SECOND;
 use std::collections::BTreeMap;
@@ -30,6 +31,8 @@ impl DocumentBuilder {
                 bit_depth: 8,
                 bg: Color::from_rgb8(0, 0, 0),
                 assets: BTreeMap::new(),
+                audio_rate: 48_000,
+                audio: Vec::new(),
                 scenes: Vec::new(),
             },
         }
@@ -55,8 +58,104 @@ impl DocumentBuilder {
         self
     }
 
+    /// Add a track to the document's audio mix (plan §5.1 audio array).
+    pub fn audio_track(mut self, track: AudioTrack) -> Self {
+        self.doc.audio.push(track);
+        self
+    }
+
+    /// Set the audio mix rate in Hz (default 48 000).
+    pub fn audio_rate(mut self, rate: u32) -> Self {
+        self.doc.audio_rate = rate;
+        self
+    }
+
     pub fn build(self) -> Document {
         self.doc
+    }
+}
+
+impl VideoElement {
+    pub fn new(asset: impl Into<String>, x: i64, y: i64, w: i64, h: i64) -> Self {
+        VideoElement {
+            asset: asset.into(),
+            x,
+            y,
+            w,
+            h,
+            fit: Fit::Contain,
+            source_range: None,
+            speed: 1.0,
+            shadow: None,
+            clip: None,
+            anim: None,
+        }
+    }
+
+    pub fn fit(mut self, fit: Fit) -> Self {
+        self.fit = fit;
+        self
+    }
+
+    /// Trim the source window in ticks; `from == to` freezes that frame.
+    pub fn source_range(mut self, from: i64, to: i64) -> Self {
+        self.source_range = Some(SourceRange { from, to });
+        self
+    }
+
+    pub fn speed(mut self, speed: f32) -> Self {
+        self.speed = speed;
+        self
+    }
+
+    pub fn shadow(mut self, shadow: ShadowDef) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+
+    pub fn clip(mut self, clip: ClipRect) -> Self {
+        self.clip = Some(clip);
+        self
+    }
+
+    pub fn anim(mut self, anim: Anim) -> Self {
+        self.anim = Some(anim);
+        self
+    }
+}
+
+impl AudioTrack {
+    pub fn new(asset: impl Into<String>) -> Self {
+        AudioTrack {
+            asset: asset.into(),
+            gain: 1.0,
+            start_at: 0,
+            source_range: None,
+            fades: Vec::new(),
+        }
+    }
+
+    pub fn gain(mut self, gain: f32) -> Self {
+        self.gain = gain;
+        self
+    }
+
+    /// Place the track at this document-timeline tick.
+    pub fn start_at(mut self, at: i64) -> Self {
+        self.start_at = at;
+        self
+    }
+
+    /// Trim the source window in ticks.
+    pub fn source_range(mut self, from: i64, to: i64) -> Self {
+        self.source_range = Some(SourceRange { from, to });
+        self
+    }
+
+    /// Add a linear fade (in or out) starting at a track-local tick.
+    pub fn fade(mut self, kind: FadeKind, at: i64, len: i64) -> Self {
+        self.fades.push(FadeDef { at, len, kind });
+        self
     }
 }
 
@@ -368,5 +467,83 @@ mod tests {
             "builder and hand-written v0.2 documents must canonicalize identically"
         );
         assert_eq!(built, parsed);
+    }
+
+    #[test]
+    fn builder_output_equals_hand_written_json_v03_media() {
+        // Same discipline as the v0.1 parity test, now covering the v0.3
+        // media surface: a trimmed video element and an audio track with a
+        // fade (plan §12 v0.3, acceptance v0.1 #4 pattern).
+        let built = DocumentBuilder::new(Size { w: 1920, h: 1080 })
+            .fps(30)
+            .asset(
+                "intro",
+                Asset::Video {
+                    src: "assets/intro.mp4".into(),
+                    sha256: None,
+                },
+            )
+            .asset(
+                "music",
+                Asset::Audio {
+                    src: "assets/music.wav".into(),
+                    sha256: None,
+                },
+            )
+            .audio_track(
+                AudioTrack::new("music")
+                    .gain(0.8)
+                    .start_at(705_600_000)
+                    .fade(FadeKind::In, 0, 88_200_000),
+            )
+            .scene(Scene {
+                id: "s1".into(),
+                duration: 705_600_000,
+                transition_in: None,
+                elements: vec![Element::Video(
+                    VideoElement::new("intro", 0, 0, 1920, 1080)
+                        .fit(Fit::Cover)
+                        .source_range(705_600_000, 1_411_200_000)
+                        .speed(2.0),
+                )],
+            })
+            .build();
+
+        let hand_written: Document = serde_json::from_str(
+            r##"{
+                "v": 1,
+                "timebase": 705600000,
+                "size": { "w": 1920, "h": 1080 },
+                "fps": 30,
+                "color_space": "srgb",
+                "bit_depth": 8,
+                "bg": "#000000",
+                "assets": {
+                    "intro": { "type": "video", "src": "assets/intro.mp4" },
+                    "music": { "type": "audio", "src": "assets/music.wav" }
+                },
+                "audio_rate": 48000,
+                "audio": [
+                    { "asset": "music", "gain": 0.8, "start_at": 705600000,
+                      "fades": [ { "at": 0, "len": 88200000, "kind": "in" } ] }
+                ],
+                "scenes": [
+                    { "id": "s1", "duration": 705600000,
+                      "elements": [
+                        { "type": "video", "asset": "intro", "x": 0, "y": 0,
+                          "w": 1920, "h": 1080, "fit": "cover",
+                          "source_range": { "from": 705600000, "to": 1411200000 },
+                          "speed": 2.0 }
+                      ] }
+                ]
+            }"##,
+        )
+        .expect("hand-written fixture");
+
+        assert_eq!(
+            canonical_json(&built).unwrap(),
+            canonical_json(&hand_written).unwrap(),
+            "builder and hand-written media documents must serialize identically"
+        );
     }
 }

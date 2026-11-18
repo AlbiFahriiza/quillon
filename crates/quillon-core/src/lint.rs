@@ -110,6 +110,9 @@ pub fn lint_document(doc: &Document) -> Vec<LintFinding> {
                         &mut findings,
                     );
                 }
+                Element::Video(v) => {
+                    lint_bbox(&path, Bbox::rect(v.x, v.y, v.w, v.h), canvas, &mut findings);
+                }
             }
         }
         lint_scene_read_time(doc, i, &mut findings);

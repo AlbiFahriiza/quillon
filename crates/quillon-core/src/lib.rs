@@ -19,8 +19,8 @@ pub use builder::DocumentBuilder;
 pub use canonical::canonical_json;
 pub use color::Color;
 pub use document::{
-    Anim, Asset, ColorSpace, Document, Element, Fit, ImageElement, Key, RectElement, Scene, Size,
-    TextAlign, TextElement, Track,
+    Anim, Asset, AudioTrack, ColorSpace, Document, Element, FadeDef, FadeKind, Fit, ImageElement,
+    Key, RectElement, Scene, Size, SourceRange, TextAlign, TextElement, Track, VideoElement,
 };
 pub use easing::{Ease, ElementState, apply_ease, evaluate_anim, evaluate_track};
 pub use frame_source::{Frame, FrameSource, MediaError, NullFrameSource};
@@ -48,3 +48,14 @@ pub const MAX_BLUR_PX: f32 = 512.0;
 pub const MAX_RADIUS_PX: f32 = 10_000.0;
 /// Most gradient stops accepted on one fill.
 pub const MAX_GRADIENT_STOPS: usize = 32;
+/// Largest accepted video retime factor (plan §12 v0.3).
+pub const MAX_SPEED: f32 = 10.0;
+/// Largest accepted linear audio gain.
+pub const MAX_GAIN: f32 = 8.0;
+/// Audio mix rates accepted (the flicks timebase divides them exactly).
+pub const MIN_AUDIO_RATE: u32 = 8_000;
+pub const MAX_AUDIO_RATE: u32 = 192_000;
+/// Most audio tracks in one mix.
+pub const MAX_AUDIO_TRACKS: usize = 32;
+/// Most fades accepted on one audio track.
+pub const MAX_FADES_PER_TRACK: usize = 64;

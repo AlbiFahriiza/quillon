@@ -35,8 +35,24 @@ pub enum RenderError {
     Asset { id: String, reason: String },
     #[error("tick {tick} is outside the document (0..{end})")]
     TickOutOfRange { tick: i64, end: i64 },
+    #[error("media source failed at source tick {tick}: {reason}")]
+    Media { tick: i64, reason: String },
     #[error("cannot run the render pipeline: {0}")]
     Pool(String),
+}
+
+/// Map a scene-local tick to the source-media tick of a video element:
+/// `from + local × speed`, clamped to the source window. `from == to`
+/// (a freeze) pins the tick to `from`; speed and window are validated
+/// positive and ordered by the document validator.
+fn video_source_tick(el: &quillon_core::VideoElement, local: Tick) -> i64 {
+    let from = el.source_range.map_or(0, |r| r.from);
+    let raw = local as f64 * f64::from(el.speed) + from as f64;
+    let tick = raw.round() as i64;
+    match el.source_range {
+        Some(range) => tick.clamp(range.from, range.to),
+        None => tick.max(from),
+    }
 }
 
 /// A prepared document: assets decoded, fonts loaded once.
@@ -65,7 +81,7 @@ impl Renderer {
     ///
     /// Not `Sync`: the font caches are `RefCell` (per-worker instances once
     /// the v0.2 parallel pipeline builds one `Renderer` per rayon worker).
-    pub fn render_tick(&self, tick: Tick, _src: &dyn FrameSource) -> Result<Frame, RenderError> {
+    pub fn render_tick(&self, tick: Tick, src: &dyn FrameSource) -> Result<Frame, RenderError> {
         let (scene_idx, local) = self.doc.scene_at(tick).ok_or(RenderError::TickOutOfRange {
             tick,
             end: self.doc.total_duration(),
@@ -77,12 +93,13 @@ impl Renderer {
             // the two frames blend per-pixel in premultiplied linear light.
             Some(duration) if scene_idx > 0 && local < duration => {
                 let prev = &self.doc.scenes[scene_idx - 1];
-                let over = self.render_scene_canvas(scene_idx, scene, local)?;
-                let under = self.render_scene_canvas(scene_idx - 1, prev, prev.duration + local)?;
+                let over = self.render_scene_canvas(scene_idx, scene, local, src)?;
+                let under =
+                    self.render_scene_canvas(scene_idx - 1, prev, prev.duration + local, src)?;
                 let p = local as f32 / duration as f32;
                 blend_canvases(under, over, p)
             }
-            _ => self.render_scene_canvas(scene_idx, scene, local)?,
+            _ => self.render_scene_canvas(scene_idx, scene, local, src)?,
         };
         Ok(Frame {
             width: self.doc.size.w,
@@ -97,12 +114,13 @@ impl Renderer {
         scene_idx: usize,
         scene: &Scene,
         local: Tick,
+        src: &dyn FrameSource,
     ) -> Result<LinearCanvas, RenderError> {
         let (w, h) = (self.doc.size.w, self.doc.size.h);
         let bg = self.doc.bg.rgb8();
         let mut canvas = LinearCanvas::filled_with(w, h, [bg.0, bg.1, bg.2]);
         for (ei, element) in scene.elements.iter().enumerate() {
-            self.draw_element(&mut canvas, scene_idx, ei, element, local)?;
+            self.draw_element(&mut canvas, scene_idx, ei, element, local, src)?;
         }
         Ok(canvas)
     }
@@ -117,6 +135,7 @@ impl Renderer {
         ei: usize,
         element: &quillon_core::Element,
         local: Tick,
+        src: &dyn FrameSource,
     ) -> Result<(), RenderError> {
         let state = evaluate_anim(element.anim(), local);
         let place = |origin: (f32, f32)| placement(origin, &state);
@@ -128,6 +147,26 @@ impl Renderer {
                     canvas,
                     &layer,
                     place,
+                    el.shadow.as_ref(),
+                    el.clip,
+                    (0.0, 0.0),
+                );
+            }
+            quillon_core::Element::Video(el) => {
+                let source_tick = video_source_tick(el, local);
+                let frame = src.frame_at(source_tick).map_err(|e| RenderError::Media {
+                    tick: source_tick,
+                    reason: e.to_string(),
+                })?;
+                let content = prepare::fit_frame(&frame, el.w, el.h, el.fit);
+                let origin = (
+                    (el.x + content.offset.0) as f32,
+                    (el.y + content.offset.1) as f32,
+                );
+                composite_layer(
+                    canvas,
+                    &content.layer,
+                    place(origin),
                     el.shadow.as_ref(),
                     el.clip,
                     (0.0, 0.0),

@@ -163,19 +163,59 @@ pub enum Asset {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sha256: Option<String>,
     },
+    Video {
+        src: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sha256: Option<String>,
+    },
+    Audio {
+        src: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sha256: Option<String>,
+    },
 }
 
 impl Asset {
     pub fn src(&self) -> &str {
         match self {
-            Asset::Image { src, .. } | Asset::Font { src, .. } => src,
+            Asset::Image { src, .. }
+            | Asset::Font { src, .. }
+            | Asset::Video { src, .. }
+            | Asset::Audio { src, .. } => src,
         }
     }
 
     pub fn sha256(&self) -> Option<&str> {
         match self {
-            Asset::Image { sha256, .. } | Asset::Font { sha256, .. } => sha256.as_deref(),
+            Asset::Image { sha256, .. }
+            | Asset::Font { sha256, .. }
+            | Asset::Video { sha256, .. }
+            | Asset::Audio { sha256, .. } => sha256.as_deref(),
         }
+    }
+}
+
+/// A half-open range of source-media time in ticks. `to > from` unless the
+/// range freezes a single frame (`from == to`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SourceRange {
+    /// Inclusive start tick within the source.
+    pub from: i64,
+    /// Exclusive end tick within the source; `> from`, or `== from` for a
+    /// single frozen frame.
+    pub to: i64,
+}
+
+impl SourceRange {
+    /// Duration of the range in ticks (0 for a freeze).
+    pub fn duration(&self) -> i64 {
+        self.to - self.from
+    }
+
+    /// A freeze holds one frame: `from == to`.
+    pub fn is_freeze(&self) -> bool {
+        self.from == self.to
     }
 }
 
@@ -285,6 +325,42 @@ pub struct ImageElement {
     pub anim: Option<Anim>,
 }
 
+/// A video drawn into a destination box, trimmed from its source (plan §5.1,
+/// §12 v0.3). `(x, y)` is the top-left corner, like an image.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VideoElement {
+    /// Key of a `video` asset.
+    pub asset: String,
+    pub x: i64,
+    pub y: i64,
+    pub w: i64,
+    pub h: i64,
+    #[serde(default = "default_fit")]
+    pub fit: Fit,
+    /// Source window in ticks; absent means the whole clip. `from == to`
+    /// freezes that single frame across the element's presence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+    /// Playback speed multiplier (retime); 1.0 is real time.
+    #[serde(default = "default_speed", skip_serializing_if = "is_default_speed")]
+    pub speed: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<ShadowDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<ClipRect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anim: Option<Anim>,
+}
+
+fn default_speed() -> f32 {
+    1.0
+}
+
+fn is_default_speed(speed: &f32) -> bool {
+    *speed == 1.0
+}
+
 /// A scene element. Rendered bottom-to-top in document order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -292,6 +368,7 @@ pub enum Element {
     Text(TextElement),
     Rect(RectElement),
     Image(ImageElement),
+    Video(VideoElement),
 }
 
 impl Element {
@@ -300,6 +377,7 @@ impl Element {
             Element::Text(e) => e.anim.as_ref(),
             Element::Rect(e) => e.anim.as_ref(),
             Element::Image(e) => e.anim.as_ref(),
+            Element::Video(e) => e.anim.as_ref(),
         }
     }
 }
@@ -333,6 +411,61 @@ impl Scene {
     }
 }
 
+/// Direction of an audio fade: `in` rises from silence, `out` falls to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FadeKind {
+    In,
+    Out,
+}
+
+/// A linear gain fade applied to an audio track, in the tick domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FadeDef {
+    /// Track-local start tick, `>= 0`.
+    pub at: i64,
+    /// Fade length in ticks, `> 0`.
+    pub len: i64,
+    pub kind: FadeKind,
+}
+
+/// One audio track of the mix: an audio asset placed on the document
+/// timeline with gain, fades, and an optional source window (plan §5.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AudioTrack {
+    /// Key of an `audio` asset.
+    pub asset: String,
+    /// Linear gain, `>= 0` (1.0 = unity).
+    #[serde(default = "default_gain", skip_serializing_if = "is_default_gain")]
+    pub gain: f32,
+    /// Placement on the document timeline in ticks.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub start_at: i64,
+    /// Source window in ticks; absent means the whole file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<SourceRange>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fades: Vec<FadeDef>,
+}
+
+fn default_gain() -> f32 {
+    1.0
+}
+
+fn is_default_gain(gain: &f32) -> bool {
+    *gain == 1.0
+}
+
+fn is_zero(ticks: &i64) -> bool {
+    *ticks == 0
+}
+
+fn default_audio_rate() -> u32 {
+    48_000
+}
+
 /// The root document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -352,7 +485,21 @@ pub struct Document {
     pub bg: Color,
     #[serde(default)]
     pub assets: BTreeMap<String, Asset>,
+    /// Audio mix rate in Hz; every track is resampled to it. Flicks divide
+    /// it exactly for the standard rates (48k, 44.1k).
+    #[serde(
+        default = "default_audio_rate",
+        skip_serializing_if = "is_default_audio_rate"
+    )]
+    pub audio_rate: u32,
+    /// The audio mix: tracks are summed, each with gain, fades, and placement.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio: Vec<AudioTrack>,
     pub scenes: Vec<Scene>,
+}
+
+fn is_default_audio_rate(rate: &u32) -> bool {
+    *rate == 48_000
 }
 
 impl Document {
@@ -398,6 +545,8 @@ mod tests {
             bit_depth: 8,
             bg: default_bg(),
             assets: BTreeMap::new(),
+            audio_rate: 48_000,
+            audio: Vec::new(),
             scenes: vec![
                 Scene {
                     id: "a".into(),

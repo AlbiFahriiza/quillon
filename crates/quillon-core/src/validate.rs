@@ -16,9 +16,10 @@ use crate::color::Color;
 use crate::document::{Anim, Asset, Document, Element, Scene, Track};
 use crate::schema::document_schema;
 use crate::{
-    DOCUMENT_VERSION, MAX_ASSETS, MAX_BLUR_PX, MAX_DIMENSION, MAX_ELEMENTS_PER_SCENE, MAX_FPS,
-    MAX_GRADIENT_STOPS, MAX_ID_LEN, MAX_KEYS_PER_TRACK, MAX_RADIUS_PX, MAX_SCENES, MAX_TEXT_LEN,
-    MAX_TEXT_SIZE, MIN_DIMENSION, time,
+    DOCUMENT_VERSION, MAX_ASSETS, MAX_AUDIO_RATE, MAX_AUDIO_TRACKS, MAX_BLUR_PX, MAX_DIMENSION,
+    MAX_ELEMENTS_PER_SCENE, MAX_FADES_PER_TRACK, MAX_FPS, MAX_GAIN, MAX_GRADIENT_STOPS, MAX_ID_LEN,
+    MAX_KEYS_PER_TRACK, MAX_RADIUS_PX, MAX_SCENES, MAX_SPEED, MAX_TEXT_LEN, MAX_TEXT_SIZE,
+    MIN_AUDIO_RATE, MIN_DIMENSION, time,
 };
 use jsonschema::validator_for;
 use serde::{Deserialize, Serialize};
@@ -95,6 +96,7 @@ pub fn validate_document(doc: &Document, base_dir: &Path) -> Vec<ValidationError
     let mut errors = Vec::new();
     validate_header(doc, &mut errors);
     validate_assets(doc, base_dir, &mut errors);
+    validate_audio(doc, &mut errors);
     validate_scenes(doc, &mut errors);
     errors
 }
@@ -336,6 +338,7 @@ fn validate_element(
         Element::Text(t) => validate_text(t, path, doc, errors),
         Element::Rect(r) => validate_rect(r, path, errors),
         Element::Image(img) => validate_image(img, path, doc, errors),
+        Element::Video(v) => validate_video(v, path, doc, errors),
     }
     if let Some(anim) = element.anim() {
         validate_anim(anim, path, scene, errors);
@@ -521,6 +524,156 @@ fn validate_image(
     }
 }
 
+/// Video elements: destination box, source window, retime speed, and the
+/// asset kind (plan §12 v0.3; research/M §2: `from == to` is a freeze).
+fn validate_video(
+    v: &crate::document::VideoElement,
+    path: &str,
+    doc: &Document,
+    errors: &mut Vec<ValidationError>,
+) {
+    if v.w < 1 || v.h < 1 {
+        errors.push(ValidationError::new(
+            path,
+            "video-size",
+            "video width and height must be at least 1",
+        ));
+    }
+    if let Some(range) = &v.source_range {
+        push_source_range_error(range, &format!("{path}/source_range"), errors);
+    }
+    if !(0.0 < v.speed && v.speed <= MAX_SPEED) {
+        errors.push(ValidationError::new(
+            format!("{path}/speed"),
+            "video-speed",
+            format!("playback speed must be within (0, {MAX_SPEED}]"),
+        ));
+    }
+    if let Some(s) = &v.shadow {
+        validate_shadow(s, &format!("{path}/shadow"), errors);
+    }
+    if let Some(c) = &v.clip {
+        validate_clip(c, &format!("{path}/clip"), errors);
+    }
+    match doc.assets.get(&v.asset) {
+        Some(Asset::Video { .. }) => {}
+        Some(_) => errors.push(ValidationError::new(
+            format!("{path}/asset"),
+            "asset-type",
+            format!("asset \"{}\" exists but is not a video", v.asset),
+        )),
+        None => errors.push(ValidationError::new(
+            format!("{path}/asset"),
+            "video-asset",
+            format!("video references unknown asset \"{}\"", v.asset),
+        )),
+    }
+}
+
+/// A source window must be well-formed: non-negative, `to >= from`, and
+/// `to > from` unless it freezes a single frame.
+fn push_source_range_error(
+    range: &crate::document::SourceRange,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if range.from < 0 || range.to < range.from {
+        errors.push(ValidationError::new(
+            path,
+            "source-range",
+            "source range must satisfy 0 <= from <= to (from == to freezes one frame)",
+        ));
+    }
+}
+
+/// The audio mix: rate divisibility, track count, per-track gain, fades, and
+/// asset kinds (plan §5.1 audio array, §12 v0.3).
+fn validate_audio(doc: &Document, errors: &mut Vec<ValidationError>) {
+    if doc.audio.is_empty() {
+        return;
+    }
+    if !(MIN_AUDIO_RATE..=MAX_AUDIO_RATE).contains(&doc.audio_rate) {
+        errors.push(ValidationError::new(
+            "/audio_rate",
+            "audio-rate",
+            format!("audio_rate must be between {MIN_AUDIO_RATE} and {MAX_AUDIO_RATE} Hz"),
+        ));
+    } else if doc.timebase % i64::from(doc.audio_rate) != 0 {
+        errors.push(ValidationError::new(
+            "/audio_rate",
+            "audio-rate",
+            format!(
+                "audio_rate {} does not divide the timebase {} exactly",
+                doc.audio_rate, doc.timebase
+            ),
+        ));
+    }
+    if doc.audio.len() > MAX_AUDIO_TRACKS {
+        errors.push(ValidationError::new(
+            "/audio",
+            "limit",
+            format!("more than {MAX_AUDIO_TRACKS} audio tracks are not accepted"),
+        ));
+    }
+    for (i, track) in doc.audio.iter().enumerate() {
+        let path = format!("/audio/{i}");
+        if !(0.0..=MAX_GAIN).contains(&track.gain) {
+            errors.push(ValidationError::new(
+                format!("{path}/gain"),
+                "audio-gain",
+                format!("gain must be within [0, {MAX_GAIN}]"),
+            ));
+        }
+        if track.start_at < 0 {
+            errors.push(ValidationError::new(
+                format!("{path}/start_at"),
+                "audio-placement",
+                "start_at must be a non-negative number of ticks",
+            ));
+        }
+        if let Some(range) = &track.source_range {
+            push_source_range_error(range, &format!("{path}/source_range"), errors);
+        }
+        if track.fades.len() > MAX_FADES_PER_TRACK {
+            errors.push(ValidationError::new(
+                format!("{path}/fades"),
+                "limit",
+                format!("more than {MAX_FADES_PER_TRACK} fades per track are not accepted"),
+            ));
+        }
+        for (j, fade) in track.fades.iter().enumerate() {
+            let fade_path = format!("{path}/fades/{j}");
+            if fade.at < 0 {
+                errors.push(ValidationError::new(
+                    format!("{fade_path}/at"),
+                    "audio-fade",
+                    "fade start must be a non-negative number of ticks",
+                ));
+            }
+            if fade.len <= 0 {
+                errors.push(ValidationError::new(
+                    format!("{fade_path}/len"),
+                    "audio-fade",
+                    "fade length must be a positive number of ticks",
+                ));
+            }
+        }
+        match doc.assets.get(&track.asset) {
+            Some(Asset::Audio { .. }) => {}
+            Some(_) => errors.push(ValidationError::new(
+                format!("{path}/asset"),
+                "asset-type",
+                format!("asset \"{}\" exists but is not an audio file", track.asset),
+            )),
+            None => errors.push(ValidationError::new(
+                format!("{path}/asset"),
+                "audio-asset",
+                format!("audio track references unknown asset \"{}\"", track.asset),
+            )),
+        }
+    }
+}
+
 fn validate_anim(anim: &Anim, path: &str, scene: &Scene, errors: &mut Vec<ValidationError>) {
     let tracks = [
         ("opacity", anim.opacity.as_ref()),
@@ -650,7 +803,7 @@ fn schema_errors(value: &Value) -> Vec<ValidationError> {
 
 fn translate_one_of(value: &Value, pointer: &str) -> String {
     let node = value.pointer(pointer).unwrap_or(value);
-    const KNOWN_TYPES: [&str; 4] = ["text", "rect", "image", "font"];
+    const KNOWN_TYPES: [&str; 6] = ["text", "rect", "image", "video", "font", "audio"];
     match node.get("type").and_then(Value::as_str) {
         Some(tag) if KNOWN_TYPES.contains(&tag) => {
             format!("the fields of this \"{tag}\" do not match the type's requirements; a required field is missing or has the wrong type")

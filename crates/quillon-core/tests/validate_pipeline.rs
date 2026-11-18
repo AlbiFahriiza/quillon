@@ -513,3 +513,214 @@ fn empty_clip_rect_is_rejected() {
     let errors = errors_for(&json);
     assert!(errors.iter().any(|e| e.code == "clip"), "{errors:?}");
 }
+
+// ---------------------------------------------------------------------------
+// v0.3 media boundaries (plan §12 v0.3, §9.5): video elements and the audio
+// mix. Validation checks structure, not media content — decoding belongs to
+// the render path (cheapest-first, plan §3 P4), so the fixtures only need to
+// exist on disk.
+// ---------------------------------------------------------------------------
+
+/// A valid document whose scene shows a trimmed video element.
+fn video_json() -> String {
+    r##"{
+            "v": 1,
+            "size": { "w": 320, "h": 240 },
+            "assets": {
+                "clip": { "type": "video", "src": "assets/dot.png" }
+            },
+            "scenes": [
+                {
+                    "id": "s1",
+                    "duration": 705600000,
+                    "elements": [
+                        { "type": "video", "asset": "clip", "x": 0, "y": 0, "w": 320, "h": 240,
+                          "fit": "cover",
+                          "source_range": { "from": 705600000, "to": 1411200000 },
+                          "speed": 2.0 }
+                    ]
+                }
+            ]
+        }"##
+    .to_string()
+}
+
+/// A valid document with one audio track carrying a fade.
+fn audio_json() -> String {
+    r##"{
+            "v": 1,
+            "size": { "w": 320, "h": 240 },
+            "assets": {
+                "tone": { "type": "audio", "src": "assets/dot.png" }
+            },
+            "audio_rate": 48000,
+            "audio": [
+                { "asset": "tone", "gain": 0.8, "start_at": 705600000,
+                  "fades": [ { "at": 0, "len": 88200000, "kind": "in" } ] }
+            ],
+            "scenes": [ { "id": "s1", "duration": 705600000, "elements": [] } ]
+        }"##
+    .to_string()
+}
+
+#[test]
+fn video_element_passes_validation() {
+    assert!(validate_str(&video_json(), Path::new(FIXTURES)).is_ok());
+}
+
+#[test]
+fn video_freeze_range_is_valid() {
+    let json = video_json().replace(
+        r##"{ "from": 705600000, "to": 1411200000 }"##,
+        r##"{ "from": 705600000, "to": 705600000 }"##,
+    );
+    assert!(validate_str(&json, Path::new(FIXTURES)).is_ok());
+}
+
+#[test]
+fn video_reversed_source_range_is_rejected() {
+    let json = video_json().replace(
+        r##"{ "from": 705600000, "to": 1411200000 }"##,
+        r##"{ "from": 1411200000, "to": 705600000 }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors.iter().any(|e| e.code == "source-range"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn video_negative_source_range_is_rejected() {
+    let json = video_json().replace(
+        r##"{ "from": 705600000, "to": 1411200000 }"##,
+        r##"{ "from": -705600000, "to": 705600000 }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors.iter().any(|e| e.code == "source-range"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn video_speed_zero_is_rejected() {
+    let json = video_json().replace(r##"speed": 2.0"##, r##"speed": 0.0"##);
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "video-speed"), "{errors:?}");
+}
+
+#[test]
+fn video_speed_above_max_is_rejected() {
+    let json = video_json().replace(r##"speed": 2.0"##, r##"speed": 11.0"##);
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "video-speed"), "{errors:?}");
+}
+
+#[test]
+fn video_zero_width_is_rejected() {
+    let json = video_json().replace(
+        r##"x": 0, "y": 0, "w": 320, "h": 240,"##,
+        r##"x": 0, "y": 0, "w": 0, "h": 240,"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "video-size"), "{errors:?}");
+}
+
+#[test]
+fn video_with_unknown_asset_is_rejected() {
+    let json = video_json().replace(r##"asset": "clip""##, r##"asset": "missing""##);
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "video-asset"), "{errors:?}");
+}
+
+#[test]
+fn video_with_wrong_asset_kind_is_rejected() {
+    let json = video_json().replace(
+        r##"{ "type": "video", "src": "assets/dot.png" }"##,
+        r##"{ "type": "image", "src": "assets/dot.png" }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "asset-type"), "{errors:?}");
+}
+
+#[test]
+fn audio_track_passes_validation() {
+    assert!(validate_str(&audio_json(), Path::new(FIXTURES)).is_ok());
+}
+
+#[test]
+fn audio_with_unknown_asset_is_rejected() {
+    let json = audio_json().replace(r##"asset": "tone""##, r##"asset": "missing""##);
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "audio-asset"), "{errors:?}");
+}
+
+#[test]
+fn audio_with_wrong_asset_kind_is_rejected() {
+    let json = audio_json().replace(
+        r##"{ "type": "audio", "src": "assets/dot.png" }"##,
+        r##"{ "type": "font", "src": "assets/font.ttf" }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "asset-type"), "{errors:?}");
+}
+
+#[test]
+fn audio_gain_out_of_range_is_rejected() {
+    for bad in ["-0.5", "8.5"] {
+        let json = audio_json().replace(r##"gain": 0.8"##, &format!(r##"gain": {bad}"##));
+        let errors = errors_for(&json);
+        assert!(errors.iter().any(|e| e.code == "audio-gain"), "{errors:?}");
+    }
+}
+
+#[test]
+fn audio_fade_zero_len_is_rejected() {
+    let json = audio_json().replace(
+        r##"{ "at": 0, "len": 88200000, "kind": "in" }"##,
+        r##"{ "at": 0, "len": 0, "kind": "in" }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "audio-fade"), "{errors:?}");
+}
+
+#[test]
+fn audio_fade_negative_start_is_rejected() {
+    let json = audio_json().replace(
+        r##"{ "at": 0, "len": 88200000, "kind": "in" }"##,
+        r##"{ "at": -1, "len": 88200000, "kind": "in" }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "audio-fade"), "{errors:?}");
+}
+
+#[test]
+fn audio_negative_start_at_is_rejected() {
+    let json = audio_json().replace(r##"start_at": 705600000"##, r##"start_at": -705600000"##);
+    let errors = errors_for(&json);
+    assert!(
+        errors.iter().any(|e| e.code == "audio-placement"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn audio_rate_not_dividing_timebase_is_rejected() {
+    let json = audio_json().replace(r##"audio_rate": 48000"##, r##"audio_rate": 44101"##);
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "audio-rate"), "{errors:?}");
+}
+
+#[test]
+fn audio_reversed_source_range_is_rejected() {
+    let json = audio_json().replace(
+        r##"fades": [ { "at": 0"##,
+        r##"source_range": { "from": 10, "to": 5 }, "fades": [ { "at": 0"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors.iter().any(|e| e.code == "source-range"),
+        "{errors:?}"
+    );
+}

@@ -50,6 +50,6 @@ mod tests {
             discriminators.push(tag);
         }
         discriminators.sort();
-        assert_eq!(discriminators, ["image", "rect", "text"]);
+        assert_eq!(discriminators, ["image", "rect", "text", "video"]);
     }
 }

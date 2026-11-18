@@ -123,6 +123,9 @@ fn scene_asset_ids(scene: &quillon_core::document::Scene) -> BTreeSet<String> {
             Element::Image(i) => {
                 ids.insert(i.asset.clone());
             }
+            Element::Video(v) => {
+                ids.insert(v.asset.clone());
+            }
             Element::Rect(_) => {}
         }
     }

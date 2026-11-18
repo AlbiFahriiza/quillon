@@ -69,6 +69,16 @@ fn scale_element(el: &Element, f: f64) -> Element {
             anim: i.anim.as_ref().map(|a| scale_anim(a, f)),
             ..i.clone()
         }),
+        Element::Video(v) => Element::Video(crate::document::VideoElement {
+            x: ((f64::from(v.x as i32)) * f).round() as i64,
+            y: ((f64::from(v.y as i32)) * f).round() as i64,
+            w: ((f64::from(v.w as i32)) * f).round().max(1.0) as i64,
+            h: ((f64::from(v.h as i32)) * f).round().max(1.0) as i64,
+            shadow: v.shadow.as_ref().map(|s| scale_shadow(s, f)),
+            clip: v.clip.map(|c| scale_clip(c, f)),
+            anim: v.anim.as_ref().map(|a| scale_anim(a, f)),
+            ..v.clone()
+        }),
     }
 }
 
