@@ -1991,6 +1991,9 @@ dependencies = [
  "ffmpeg-sidecar",
  "quillon-core",
  "quillon-render",
+ "serde",
+ "serde_json",
+ "sha2",
  "thiserror",
 ]
 

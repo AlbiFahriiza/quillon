@@ -13,11 +13,18 @@ pub struct Frame {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("no media source is available for this element")]
 pub enum MediaError {
     /// The document references media this build cannot decode (format v1 has
     /// no video elements; this reaches the caller as a render error).
+    #[error("no media source is available for this element")]
     Unavailable,
+    /// The decoder process could not be started (ffmpeg missing or rejected
+    /// the arguments).
+    #[error("cannot start the media decoder — is ffmpeg installed and on PATH? ({0})")]
+    Spawn(String),
+    /// The decoder ran but produced a failure or unusable output.
+    #[error("media decode failed: {0}")]
+    Decode(String),
 }
 
 /// Frames of a source clip, addressed by tick. Implementations decode from

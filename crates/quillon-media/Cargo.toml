@@ -10,7 +10,10 @@ rust-version.workspace = true
 [dependencies]
 quillon-core = { workspace = true }
 ffmpeg-sidecar = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 quillon-render = { workspace = true }
+sha2 = { workspace = true }

@@ -1,9 +1,17 @@
-//! MP4 output through the system ffmpeg binary (sidecar mode, plan §7:
-//! zero linking, pure MIT path; the user supplies the ffmpeg binary).
+//! Media adapters (sidecar mode, plan §7: zero linking, pure MIT path; the
+//! user supplies the ffmpeg/ffprobe binaries).
 //!
-//! Frames stream to ffmpeg's stdin as raw RGBA; stderr is drained on a
-//! thread so a chatty encoder can never fill the OS pipe buffer and deadlock
-//! the render (research/R).
+//! Three surfaces: [`Mp4Sink`] encodes raw RGBA frames to MP4 through
+//! ffmpeg's stdin (stderr drained on a thread so a chatty encoder can never
+//! deadlock the render — research/R); [`probe`] reports what ffprobe sees in
+//! a file; [`decoder::SidecarDecoder`] implements core's `FrameSource` with
+//! keyframe-accurate, decode-forward seeks (plan §12 v0.3).
+
+pub mod decoder;
+pub mod probe;
+
+pub use decoder::SidecarDecoder;
+pub use probe::{MediaInfo, ProbeError, probe};
 
 use quillon_core::frame_source::Frame;
 use std::io::{Read, Write};
