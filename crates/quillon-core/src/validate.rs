@@ -456,7 +456,15 @@ fn push_asset_path_error(src: &str, path: &str, errors: &mut Vec<ValidationError
         return;
     }
     let candidate = Path::new(src);
-    if candidate.is_absolute()
+    // Documents are platform-neutral, so these rules must not depend on the
+    // host OS: `Path::is_absolute()` alone would accept "/etc/passwd" on
+    // Windows (it lacks a drive prefix) and reject nothing that matters.
+    // Leading `/` and `<letter>:` drive prefixes are banned by string shape.
+    let has_drive_prefix =
+        src.len() >= 2 && src.as_bytes()[0].is_ascii_alphabetic() && src.as_bytes()[1] == b':';
+    if src.starts_with('/')
+        || has_drive_prefix
+        || candidate.is_absolute()
         || src.contains('\\')
         || candidate
             .components()

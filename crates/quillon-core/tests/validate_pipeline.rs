@@ -297,6 +297,29 @@ fn absolute_asset_path_is_rejected() {
 }
 
 #[test]
+fn windows_drive_asset_path_is_rejected() {
+    // `Path::is_absolute()` reports false for "C:/x" on Unix and true on
+    // Windows; the rejection must hold on every OS because documents are
+    // platform-neutral (found by the Windows leg of CI run 44296673474).
+    let json = valid_json().replace(
+        r#""src": "assets/font.ttf""#,
+        r#""src": "C:/Windows/fonts/arial.ttf""#,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "asset-src"), "{errors:?}");
+}
+
+#[test]
+fn unc_asset_path_is_rejected() {
+    let json = valid_json().replace(
+        r#""src": "assets/font.ttf""#,
+        r#""src": "\\\\server\\share\\font.ttf""#,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "asset-src"), "{errors:?}");
+}
+
+#[test]
 fn missing_asset_file_is_rejected() {
     let json = valid_json().replace(
         r#""src": "assets/font.ttf""#,
