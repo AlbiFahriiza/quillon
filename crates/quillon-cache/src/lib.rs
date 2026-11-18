@@ -483,7 +483,11 @@ mod tests {
                 let cache = cache.clone();
                 std::thread::spawn(move || {
                     for i in 0..64u32 {
-                        let key = [t as u8; 32].map(|b| b ^ i as u8);
+                        // Key unique per (thread, i): the previous XOR scheme
+                        // collided (0^53 == 1^52), which raced two frames
+                        // onto one key — a test bug, not a cache bug.
+                        let mut key = [t as u8; 32];
+                        key[1] = i as u8;
                         let frame = Frame {
                             width: 1,
                             height: 1,
