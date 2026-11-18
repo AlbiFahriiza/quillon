@@ -3,7 +3,6 @@
 //! tempdir — no binary fixtures in the repo, and the same ffmpeg that will
 //! run in CI produces the inputs.
 
-use quillon_core::frame_source::FrameSource;
 use quillon_core::time::FLICKS_PER_SECOND as TIMEBASE;
 use quillon_media::decoder::SidecarDecoder;
 use quillon_media::probe;
@@ -177,7 +176,7 @@ fn non_keyframe_trim_decodes_the_exact_frame() {
     // Frame 17 sits between the keyframe at 0 and the clip end: every seek
     // to it must decode forward through frames 1..17.
     let tick = 17 * TIMEBASE / 10;
-    let frame = decoder.frame_at(tick).expect("decode frame 17");
+    let frame = decoder.decode_at(tick).expect("decode frame 17");
 
     assert_eq!((frame.width, frame.height), (320, 240));
     let reference = reference_frame(&path, 17);
@@ -188,7 +187,7 @@ fn non_keyframe_trim_decodes_the_exact_frame() {
 
     // A second, later non-keyframe from the same clip.
     let tick25 = 25 * TIMEBASE / 10;
-    let frame25 = decoder.frame_at(tick25).expect("decode frame 25");
+    let frame25 = decoder.decode_at(tick25).expect("decode frame 25");
     assert_eq!(frame25.rgba, reference_frame(&path, 25));
 }
 
@@ -200,7 +199,7 @@ fn decoder_cache_avoids_respawning_per_frame() {
 
     // Sequential frames 0..9 — the pipeline's access pattern.
     for n in 0..10i64 {
-        decoder.frame_at(n * TIMEBASE / 10).expect("decode");
+        decoder.decode_at(n * TIMEBASE / 10).expect("decode");
     }
     assert_eq!(
         decoder.spawns(),
@@ -209,7 +208,7 @@ fn decoder_cache_avoids_respawning_per_frame() {
     );
 
     // The same frame again: pure cache hit, no new process.
-    decoder.frame_at(5 * TIMEBASE / 10).expect("cached");
+    decoder.decode_at(5 * TIMEBASE / 10).expect("cached");
     assert_eq!(decoder.spawns(), 1);
 }
 
@@ -219,7 +218,7 @@ fn ticks_past_the_end_hold_the_last_frame() {
     let path = gop250_clip(&dir, "gop250.mp4", &["libx264"], &["aac"]);
     let decoder = SidecarDecoder::open(&path, TIMEBASE).expect("open");
 
-    let last = decoder.frame_at(10 * TIMEBASE).expect("past the end");
+    let last = decoder.decode_at(10 * TIMEBASE).expect("past the end");
     let reference = reference_frame(&path, 29); // 3 s at 10 fps: frames 0..=29
     assert_eq!(last.rgba, reference);
 }

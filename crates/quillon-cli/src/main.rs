@@ -4,7 +4,9 @@
 //! Usage errors exit 1 (clap's default 2 is reserved for document problems).
 
 use clap::{Parser, Subcommand, ValueEnum};
+use quillon_core::frame_source::{FrameSource, NullFrameSource};
 use quillon_core::{Document, lint_document, validate_str};
+use quillon_media::DocumentFrameSource;
 use quillon_media::Mp4Sink;
 use quillon_render::{RENDERER_VERSION, render_document_parallel};
 use serde_json::json;
@@ -41,6 +43,20 @@ enum Command {
         #[arg(long, default_value_t = 4721)]
         port: u16,
     },
+    /// Report what a media file contains: duration, resolution, fps, codecs.
+    Probe {
+        file: PathBuf,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Summarize a validated document: scenes, timing, assets, audio mix.
+    Inspect {
+        doc: PathBuf,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Render a document to MP4 (system ffmpeg) or PNG frames.
     Render {
         doc: PathBuf,
@@ -57,13 +73,17 @@ enum Command {
         /// only compute frames whose scene content changed.
         #[arg(long)]
         cache_dir: Option<PathBuf>,
+        /// Normalize the audio mix to this integrated loudness (LUFS);
+        /// the EBU R128 broadcast preset is -23.
+        #[arg(long)]
+        lufs: Option<f64>,
         /// Print machine-readable JSON.
         #[arg(long)]
         json: bool,
     },
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum Format {
     Png,
     Mp4,
@@ -84,14 +104,17 @@ fn main() {
             json,
             allow_lint,
         } => validate(&doc, json, allow_lint),
+        Command::Probe { file, json } => probe_cmd(&file, json),
+        Command::Inspect { doc, json } => inspect(&doc, json),
         Command::Render {
             doc,
             out,
             format,
             workers,
             cache_dir,
+            lufs,
             json,
-        } => render(&doc, &out, format, workers, cache_dir, json),
+        } => render(&doc, &out, format, workers, cache_dir, lufs, json),
         Command::Preview { doc, port } => preview(&doc, port),
     };
     std::process::exit(code);
@@ -135,6 +158,112 @@ fn preview(path: &Path, port: u16) -> i32 {
     );
     // Serve until the process is stopped; there is no in-band quit.
     runtime.block_on(std::future::pending::<()>());
+    0
+}
+
+fn probe_cmd(path: &Path, json: bool) -> i32 {
+    match quillon_media::probe::probe(path) {
+        Ok(info) => {
+            if json {
+                let fps: serde_json::Value = info
+                    .fps
+                    .map(|(num, den)| json!({ "num": num, "den": den }))
+                    .unwrap_or(serde_json::Value::Null);
+                let body = json!({
+                    "file": path,
+                    "duration_seconds": info.duration,
+                    "width": info.width,
+                    "height": info.height,
+                    "fps": fps,
+                    "video_codec": info.video_codec,
+                    "audio_codec": info.audio_codec,
+                });
+                println!("{body}");
+            } else {
+                let fps = info
+                    .fps
+                    .map(|(num, den)| format!("{num}/{den}"))
+                    .unwrap_or_else(|| "n/a".into());
+                println!(
+                    "{}: {}x{} @ {fps} fps",
+                    path.display(),
+                    info.width.map(|w| w.to_string()).unwrap_or("-".into()),
+                    info.height.map(|h| h.to_string()).unwrap_or("-".into())
+                );
+                println!(
+                    "  duration: {}",
+                    info.duration
+                        .map(|d| format!("{d:.3} s"))
+                        .unwrap_or("n/a".into())
+                );
+                println!("  video: {}", info.video_codec.as_deref().unwrap_or("none"));
+                println!("  audio: {}", info.audio_codec.as_deref().unwrap_or("none"));
+            }
+            0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+fn inspect(path: &Path, json: bool) -> i32 {
+    let doc = match read_document(path) {
+        Ok(doc) => doc,
+        Err(code) => return code,
+    };
+    let scenes: Vec<_> = doc
+        .scenes
+        .iter()
+        .map(|s| {
+            json!({
+                "id": s.id,
+                "duration": s.duration,
+                "elements": s.elements.len(),
+                "transition_in": s.transition_in.as_ref().map(|t| t.kind_str()),
+            })
+        })
+        .collect();
+    let assets: Vec<_> = doc
+        .assets
+        .iter()
+        .map(|(id, a)| json!({ "id": id, "type": a.kind_str(), "src": a.src() }))
+        .collect();
+    let audio: Vec<_> = doc
+        .audio
+        .iter()
+        .map(|t| {
+            json!({
+                "asset": t.asset, "gain": t.gain, "start_at": t.start_at,
+                "fades": t.fades.len(),
+            })
+        })
+        .collect();
+    if json {
+        let body = json!({
+            "file": path,
+            "size": { "w": doc.size.w, "h": doc.size.h },
+            "fps": doc.fps,
+            "timebase": doc.timebase,
+            "audio_rate": doc.audio_rate,
+            "duration_ticks": doc.total_duration(),
+            "frames": doc.frame_count(),
+            "scenes": scenes,
+            "assets": assets,
+            "audio": audio,
+        });
+        println!("{body}");
+    } else {
+        println!(
+            "{}: {} scene(s), {} frame(s), {} asset(s), {} audio track(s)",
+            path.display(),
+            doc.scenes.len(),
+            doc.frame_count(),
+            doc.assets.len(),
+            doc.audio.len()
+        );
+    }
     0
 }
 
@@ -210,6 +339,7 @@ fn render(
     format: Format,
     workers: Option<usize>,
     cache_dir: Option<PathBuf>,
+    lufs: Option<f64>,
     json: bool,
 ) -> i32 {
     let doc = match read_document(path) {
@@ -222,6 +352,13 @@ fn render(
             .map(|n| n.get())
             .unwrap_or(1)
     });
+
+    // The document's video assets, decoded on demand (plan §6.3); documents
+    // without video render against the null source.
+    let src: Arc<dyn FrameSource> = match DocumentFrameSource::open(&doc, base) {
+        Ok(source) if !source.is_empty() => Arc::new(source),
+        _ => Arc::new(NullFrameSource),
+    };
 
     // Opt-in cache: content-addressed frames keyed by document subtree,
     // renderer version, asset hashes and tick (research/G).
@@ -270,13 +407,15 @@ fn render(
         _ => (None, None),
     };
 
-    let rx = match render_document_parallel(&doc, base, workers, cache_get, cache_put) {
-        Ok(rx) => rx,
-        Err(err) => {
-            eprintln!("cannot prepare the render: {err}");
-            return 1;
-        }
-    };
+    let rx =
+        match render_document_parallel(&doc, base, workers, Arc::clone(&src), cache_get, cache_put)
+        {
+            Ok(rx) => rx,
+            Err(err) => {
+                eprintln!("cannot prepare the render: {err}");
+                return 1;
+            }
+        };
 
     // Stream frames to the output as they arrive: peak memory is the
     // pipeline chunk plus the channel, never the whole video (research/R).
@@ -337,6 +476,20 @@ fn render(
         let (hits, misses) = cache.stats();
         eprintln!("cache: {hits} hit(s), {misses} miss(es)");
     }
+
+    // Audio: mix the document's tracks, optionally normalize loudness, and
+    // mux them into the MP4 (video stream copied, audio AAC-encoded once).
+    let has_audio = !doc.audio.is_empty();
+    if has_audio && format == Format::Mp4 {
+        if let Err(code) = mux_document_audio(&doc, base, out, lufs) {
+            return code;
+        }
+    } else if has_audio {
+        eprintln!(
+            "note: the document has audio tracks; PNG output skips them (render MP4 to hear them)"
+        );
+    }
+
     if json {
         let body = json!({
             "output": out,
@@ -382,4 +535,76 @@ fn quillon_render_frame_hash(frame: &quillon_core::Frame) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(&frame.rgba);
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Mix, normalize, and mux the document's audio into the rendered MP4.
+/// The video stream is stream-copied (no re-encode); audio becomes AAC.
+fn mux_document_audio(
+    doc: &Document,
+    base: &Path,
+    out: &Path,
+    lufs: Option<f64>,
+) -> Result<(), i32> {
+    let mut mix = match quillon_audio::mix_document_decoding(doc, base) {
+        Ok(mix) => mix,
+        Err(err) => {
+            eprintln!("cannot mix the document audio: {err}");
+            return Err(1);
+        }
+    };
+    if let Some(target) = lufs {
+        match quillon_audio::normalize_lufs(&mut mix.samples, mix.rate, target) {
+            Ok(before) if before.is_finite() => {
+                eprintln!("audio: {before:.1} LUFS -> {target:.1} LUFS")
+            }
+            Ok(_) => eprintln!("audio: silence, nothing to normalize"),
+            Err(err) => {
+                eprintln!("cannot normalize loudness: {err}");
+                return Err(1);
+            }
+        }
+    }
+    let temp_dir = std::env::temp_dir().join(format!("quillon-mux-{}", std::process::id()));
+    if let Err(err) = std::fs::create_dir_all(&temp_dir) {
+        eprintln!("cannot create a temp dir for muxing: {err}");
+        return Err(1);
+    }
+    let wav = temp_dir.join("audio.wav");
+    let video_tmp = temp_dir.join("video.mp4");
+    if let Err(err) = quillon_audio::write_wav(&wav, &mix.samples, mix.channels, mix.rate) {
+        eprintln!("cannot write the mixed audio: {err}");
+        return Err(1);
+    }
+    if let Err(err) = std::fs::rename(out, &video_tmp) {
+        eprintln!("cannot stage the rendered video for muxing: {err}");
+        return Err(1);
+    }
+    let mut command = ffmpeg_sidecar::command::FfmpegCommand::new();
+    command
+        .args(["-hide_banner", "-loglevel", "error"])
+        .input(video_tmp.to_string_lossy().as_ref())
+        .input(wav.to_string_lossy().as_ref())
+        .args(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest"])
+        .overwrite()
+        .output(out.to_string_lossy().as_ref());
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            eprintln!("cannot start ffmpeg to mux audio: {err}");
+            return Err(1);
+        }
+    };
+    let status = match child.wait() {
+        Ok(status) => status,
+        Err(err) => {
+            eprintln!("waiting for the muxer failed: {err}");
+            return Err(1);
+        }
+    };
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    if !status.success() {
+        eprintln!("audio muxing failed (ffmpeg exit {status})");
+        return Err(1);
+    }
+    Ok(())
 }

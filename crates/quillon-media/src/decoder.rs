@@ -11,12 +11,13 @@
 //! per frame, and memory stays bounded (research/R's "never buffer the
 //! animation" rule).
 
+use quillon_core::document::Document;
 use quillon_core::frame_source::{Frame, FrameSource, MediaError};
 use quillon_core::time::Tick;
-use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Frames decoded per ffmpeg spawn; bounded so a long clip never lands in
 /// RAM wholesale.
@@ -25,7 +26,18 @@ const CHUNK_FRAMES: u64 = 32;
 /// the cache is trimmed to the most recent frames only).
 const CACHE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
 
-/// A video file decoded on demand through the ffmpeg sidecar.
+/// Mutable decoder state behind one lock: renders hit the cache in bulk
+/// (chunk-ordered access), so a single mutex keeps accounting exact without
+/// contention.
+#[derive(Default)]
+struct DecoderState {
+    cache: BTreeMap<u64, Frame>,
+    cache_bytes: usize,
+    spawns: u32,
+}
+
+/// A video file decoded on demand through the ffmpeg sidecar. Safe to share
+/// across render workers (core's `FrameSource` contract).
 pub struct SidecarDecoder {
     path: PathBuf,
     width: u32,
@@ -35,11 +47,7 @@ pub struct SidecarDecoder {
     /// Clip duration in document ticks; ticks past it hold the last frame.
     duration_ticks: i64,
     timebase: i64,
-    cache: RefCell<BTreeMap<u64, Frame>>,
-    cache_bytes: Cell<usize>,
-    /// How many ffmpeg processes this decoder has spawned (cache accounting;
-    /// tests assert on it).
-    spawns: Cell<u32>,
+    state: Mutex<DecoderState>,
 }
 
 impl SidecarDecoder {
@@ -68,15 +76,13 @@ impl SidecarDecoder {
             fps,
             duration_ticks,
             timebase,
-            cache: RefCell::new(BTreeMap::new()),
-            cache_bytes: Cell::new(0),
-            spawns: Cell::new(0),
+            state: Mutex::new(DecoderState::default()),
         })
     }
 
     /// How many ffmpeg processes have been spawned so far.
     pub fn spawns(&self) -> u32 {
-        self.spawns.get()
+        self.state.lock().expect("decoder lock").spawns
     }
 
     /// Map a document tick to a source frame index (exact rational math).
@@ -144,7 +150,6 @@ impl SidecarDecoder {
         let mut child = command
             .spawn()
             .map_err(|e| MediaError::Spawn(e.to_string()))?;
-        self.spawns.set(self.spawns.get() + 1);
         let mut stdout = child
             .take_stdout()
             .ok_or_else(|| MediaError::Spawn("ffmpeg stdout unavailable".into()))?;
@@ -179,15 +184,14 @@ impl SidecarDecoder {
             )));
         }
 
-        let mut cache = self.cache.borrow_mut();
+        let mut state = self.state.lock().expect("decoder lock");
         let gained: usize = decoded.values().map(|f| f.rgba.len()).sum();
         for (i, frame) in decoded {
-            if cache.insert(i, frame).is_none() {
-                // New entry (replacing would not grow the budget).
-            }
+            state.cache.insert(i, frame);
         }
-        self.cache_bytes.set(self.cache_bytes.get() + gained);
-        self.trim_to_budget(&mut cache);
+        state.cache_bytes += gained;
+        state.spawns += 1;
+        self.trim_to_budget(&mut state);
         Ok(())
     }
 
@@ -198,35 +202,73 @@ impl SidecarDecoder {
     }
 
     /// Keep only the most recent frames when the budget is exceeded.
-    fn trim_to_budget(&self, cache: &mut BTreeMap<u64, Frame>) {
-        while self.cache_bytes.get() > CACHE_BYTE_BUDGET && cache.len() > 1 {
+    fn trim_to_budget(&self, state: &mut DecoderState) {
+        while state.cache_bytes > CACHE_BYTE_BUDGET && state.cache.len() > 1 {
             // Drop the oldest cached frame.
-            let oldest = *cache.keys().next().expect("non-empty cache");
-            if let Some(frame) = cache.remove(&oldest) {
-                self.cache_bytes
-                    .set(self.cache_bytes.get() - frame.rgba.len());
+            let oldest = *state.cache.keys().next().expect("non-empty cache");
+            if let Some(frame) = state.cache.remove(&oldest) {
+                state.cache_bytes -= frame.rgba.len();
             }
         }
     }
-}
 
-impl FrameSource for SidecarDecoder {
-    fn frame_at(&self, tick: Tick) -> Result<Frame, MediaError> {
+    /// The decoded frame at `tick` (the `FrameSource` body, shared by the
+    /// document-level source below).
+    pub fn decode_at(&self, tick: Tick) -> Result<Frame, MediaError> {
         let mut index = self.frame_index(tick);
         // Ticks past the end hold the last frame (freeze/hold semantics,
         // matching how animation tracks clamp at their final key).
         if let Some(last) = self.last_frame_index() {
             index = index.min(last);
         }
-        if let Some(frame) = self.cache.borrow().get(&index) {
-            return Ok(frame.clone());
+        {
+            let state = self.state.lock().expect("decoder lock");
+            if let Some(frame) = state.cache.get(&index) {
+                return Ok(frame.clone());
+            }
         }
         self.decode_chunk(index)?;
-        self.cache
-            .borrow()
+        let state = self.state.lock().expect("decoder lock");
+        state
+            .cache
             .get(&index)
             .cloned()
             .ok_or_else(|| MediaError::Decode(format!("no frame decoded at index {index}")))
+    }
+}
+
+/// A document's video assets, each with its own decoder, behind one
+/// `FrameSource` (plan §6.3): the render pipeline consumes this.
+pub struct DocumentFrameSource {
+    decoders: BTreeMap<String, SidecarDecoder>,
+}
+
+impl DocumentFrameSource {
+    /// Open a decoder for every video asset the document declares. Fails up
+    /// front (cheapest-first) on unreadable or unprobeable files.
+    /// True when the document declares no video assets.
+    pub fn is_empty(&self) -> bool {
+        self.decoders.is_empty()
+    }
+
+    pub fn open(doc: &Document, base_dir: &Path) -> Result<DocumentFrameSource, MediaError> {
+        let mut decoders = BTreeMap::new();
+        for (id, asset) in &doc.assets {
+            if let quillon_core::document::Asset::Video { .. } = asset {
+                let decoder = SidecarDecoder::open(&base_dir.join(asset.src()), doc.timebase)?;
+                decoders.insert(id.clone(), decoder);
+            }
+        }
+        Ok(DocumentFrameSource { decoders })
+    }
+}
+
+impl FrameSource for DocumentFrameSource {
+    fn frame_at(&self, asset: &str, tick: Tick) -> Result<Frame, MediaError> {
+        let decoder = self.decoders.get(asset).ok_or_else(|| {
+            MediaError::Spawn(format!("no decoder was opened for video asset \"{asset}\""))
+        })?;
+        decoder.decode_at(tick)
     }
 }
 
@@ -266,9 +308,7 @@ mod tests {
             fps,
             duration_ticks,
             timebase,
-            cache: RefCell::new(BTreeMap::new()),
-            cache_bytes: Cell::new(0),
-            spawns: Cell::new(0),
+            state: Mutex::new(DecoderState::default()),
         }
     }
 

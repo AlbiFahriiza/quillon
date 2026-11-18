@@ -1,7 +1,7 @@
-//! The render contract (myquillonplan.md §6.3): a frame source maps a tick
-//! to a decoded frame. The trait lives in core; quillon-media implements it.
-//! Format v1 documents have no video elements, so the only implementation
-//! here is the null source that every video element would reject against.
+//! The render contract (myquillonplan.md §6.3): a frame source maps an
+//! (asset, tick) pair to a decoded frame. The trait lives in core;
+//! quillon-media implements it. `Send + Sync` is part of the contract:
+//! the parallel pipeline shares one source across rayon workers.
 
 /// A decoded RGBA frame, 8 bits per channel, straight (non-premultiplied)
 /// alpha, 4 bytes per pixel, row-major.
@@ -14,8 +14,7 @@ pub struct Frame {
 
 #[derive(Debug, thiserror::Error)]
 pub enum MediaError {
-    /// The document references media this build cannot decode (format v1 has
-    /// no video elements; this reaches the caller as a render error).
+    /// The document references media this build cannot decode.
     #[error("no media source is available for this element")]
     Unavailable,
     /// The decoder process could not be started (ffmpeg missing or rejected
@@ -27,18 +26,20 @@ pub enum MediaError {
     Decode(String),
 }
 
-/// Frames of a source clip, addressed by tick. Implementations decode from
-/// the nearest keyframe at or before `tick` (plan §6.3, research/M §2).
-pub trait FrameSource {
-    fn frame_at(&self, tick: crate::time::Tick) -> Result<Frame, MediaError>;
+/// Frames of a document's video assets, addressed by asset id and tick.
+/// Implementations decode from the nearest keyframe at or before `tick`
+/// (plan §6.3, research/M §2) and must be safe to share across threads.
+pub trait FrameSource: Send + Sync {
+    fn frame_at(&self, asset: &str, tick: crate::time::Tick) -> Result<Frame, MediaError>;
 }
 
-/// The v1 placeholder: no media, every tick errors.
+/// The no-media source: every (asset, tick) errors. Documents without video
+/// assets render against it; a video element reaching it is a render error.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NullFrameSource;
 
 impl FrameSource for NullFrameSource {
-    fn frame_at(&self, _tick: crate::time::Tick) -> Result<Frame, MediaError> {
+    fn frame_at(&self, _asset: &str, _tick: crate::time::Tick) -> Result<Frame, MediaError> {
         Err(MediaError::Unavailable)
     }
 }

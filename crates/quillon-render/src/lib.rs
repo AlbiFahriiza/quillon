@@ -154,10 +154,12 @@ impl Renderer {
             }
             quillon_core::Element::Video(el) => {
                 let source_tick = video_source_tick(el, local);
-                let frame = src.frame_at(source_tick).map_err(|e| RenderError::Media {
-                    tick: source_tick,
-                    reason: e.to_string(),
-                })?;
+                let frame =
+                    src.frame_at(&el.asset, source_tick)
+                        .map_err(|e| RenderError::Media {
+                            tick: source_tick,
+                            reason: e.to_string(),
+                        })?;
                 let content = prepare::fit_frame(&frame, el.w, el.h, el.fit);
                 let origin = (
                     (el.x + content.offset.0) as f32,

@@ -10,7 +10,7 @@
 pub mod decoder;
 pub mod probe;
 
-pub use decoder::SidecarDecoder;
+pub use decoder::{DocumentFrameSource, SidecarDecoder};
 pub use probe::{MediaInfo, ProbeError, probe};
 
 use quillon_core::frame_source::Frame;

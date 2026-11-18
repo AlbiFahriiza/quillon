@@ -14,7 +14,7 @@
 
 use crate::{RenderError, Renderer};
 use quillon_core::document::Document;
-use quillon_core::frame_source::{Frame, NullFrameSource};
+use quillon_core::frame_source::{Frame, FrameSource};
 use quillon_core::time::frame_tick;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -38,10 +38,14 @@ pub type CachePut = Arc<dyn Fn(usize, i64, &Frame) + Send + Sync>;
 /// Render every frame of `doc` in parallel and stream them, in frame order,
 /// over a bounded channel. The returned receiver is the only consumer;
 /// dropping it aborts rendering. Errors surface as `Err` jobs in the stream.
+///
+/// `src` supplies decoded video frames (plan §6.3); documents without video
+/// assets pass a null source and video elements error against it.
 pub fn render_document_parallel(
     doc: &Document,
     base_dir: &Path,
     workers: usize,
+    src: Arc<dyn FrameSource>,
     cache_get: Option<CacheGet>,
     cache_put: Option<CachePut>,
 ) -> Result<Receiver<Result<FrameJob, RenderError>>, RenderError> {
@@ -81,6 +85,7 @@ pub fn render_document_parallel(
                         render_one(
                             &doc,
                             &base_dir,
+                            src.as_ref(),
                             i,
                             frame,
                             cache_get.as_deref(),
@@ -124,6 +129,7 @@ fn chunk_size(workers: usize) -> u64 {
 fn render_one(
     doc: &Document,
     base_dir: &Path,
+    src: &dyn FrameSource,
     index: u64,
     frame: i64,
     cache_get: Option<&CacheGet>,
@@ -148,7 +154,7 @@ fn render_one(
         slot.as_ref()
             .expect("initialized above")
             .1
-            .render_tick(tick, &NullFrameSource)
+            .render_tick(tick, src)
     })?;
     if let Some(put) = cache_put {
         put(scene_idx, local, &renderer_frame);

@@ -176,6 +176,16 @@ pub enum Asset {
 }
 
 impl Asset {
+    /// Lowercase kind name for summaries ("image", "font", "video", "audio").
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            Asset::Image { .. } => "image",
+            Asset::Font { .. } => "font",
+            Asset::Video { .. } => "video",
+            Asset::Audio { .. } => "audio",
+        }
+    }
+
     pub fn src(&self) -> &str {
         match self {
             Asset::Image { src, .. }
@@ -396,6 +406,16 @@ pub struct Scene {
     pub transition_in: Option<Transition>,
     #[serde(default)]
     pub elements: Vec<Element>,
+}
+
+impl Transition {
+    /// Lowercase kind name for summaries.
+    pub fn kind_str(&self) -> &'static str {
+        match self.kind {
+            TransitionKind::Cut => "cut",
+            TransitionKind::Crossfade => "crossfade",
+        }
+    }
 }
 
 impl Scene {
