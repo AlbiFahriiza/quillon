@@ -239,7 +239,11 @@ fn render_with_cache_dir_all_hits_on_second_run() {
     ]);
     assert_eq!(code, 0, "stdout: {stdout}, stderr: {stderr}");
     let (hits, misses) = cache_counts(&stderr);
-    assert_eq!((hits, misses), (10, 0), "second run hits every frame, got: {stderr}");
+    assert_eq!(
+        (hits, misses),
+        (10, 0),
+        "second run hits every frame, got: {stderr}"
+    );
     let first = std::fs::read_to_string(out1.join("manifest.json")).unwrap();
     let second = std::fs::read_to_string(out2.join("manifest.json")).unwrap();
     assert_eq!(first, second, "manifests must be identical");

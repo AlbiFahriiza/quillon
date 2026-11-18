@@ -34,6 +34,13 @@ enum Command {
         #[arg(long)]
         allow_lint: bool,
     },
+    /// Serve a live draft filmstrip of a document on localhost.
+    Preview {
+        doc: PathBuf,
+        /// Port to serve on (localhost only).
+        #[arg(long, default_value_t = 4721)]
+        port: u16,
+    },
     /// Render a document to MP4 (system ffmpeg) or PNG frames.
     Render {
         doc: PathBuf,
@@ -85,8 +92,50 @@ fn main() {
             cache_dir,
             json,
         } => render(&doc, &out, format, workers, cache_dir, json),
+        Command::Preview { doc, port } => preview(&doc, port),
     };
     std::process::exit(code);
+}
+
+fn preview(path: &Path, port: u16) -> i32 {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("cannot start the preview server: {err}");
+            return 1;
+        }
+    };
+    let cache_dir = quillon_cli::preview::preview_cache_dir();
+    let cache = match quillon_cache::FrameCache::open(
+        &cache_dir,
+        quillon_cli::preview::PREVIEW_CACHE_MEMORY,
+    ) {
+        Ok(cache) => cache,
+        Err(err) => {
+            eprintln!("cannot open the preview cache: {err}");
+            return 1;
+        }
+    };
+    let started = std::time::Instant::now();
+    let address = runtime.block_on(quillon_cli::preview::spawn_preview(path, port, cache));
+    let address = match address {
+        Ok(address) => address,
+        Err(err) => {
+            eprintln!("cannot bind the preview server: {err}");
+            return 1;
+        }
+    };
+    println!(
+        "preview ready in {:.0?} — http://{} (Ctrl-C stops)",
+        started.elapsed(),
+        address
+    );
+    // Serve until the process is stopped; there is no in-band quit.
+    runtime.block_on(std::future::pending::<()>());
+    0
 }
 
 fn read_document(path: &Path) -> Result<Document, i32> {

@@ -7,6 +7,7 @@ pub mod builder;
 pub mod canonical;
 pub mod color;
 pub mod document;
+pub mod draft;
 pub mod easing;
 pub mod frame_source;
 pub mod lint;
