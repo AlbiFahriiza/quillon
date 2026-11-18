@@ -1,0 +1,38 @@
+{
+  "v": 1,
+  "size": {
+    "w": 320,
+    "h": 240
+  },
+  "fps": 10,
+  "bg": "#101418",
+  "assets": {
+    "body": {
+      "type": "font",
+      "src": "assets/font.ttf"
+    }
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "duration": 705600000,
+      "elements": [
+        {
+          "type": "rect",
+          "x": 1,
+          "y": 2,
+          "w": 10
+        },
+        {
+          "type": "text",
+          "text": "Quillon",
+          "font": "body",
+          "x": 160,
+          "y": 120,
+          "size": 24.0,
+          "color": "#f2f2f2"
+        }
+      ]
+    }
+  ]
+}

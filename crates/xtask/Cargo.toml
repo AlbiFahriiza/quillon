@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+description = "Repo automation: schema export and golden-hash refresh"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+quillon-core = { workspace = true }
+quillon-render = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+anyhow = { workspace = true }

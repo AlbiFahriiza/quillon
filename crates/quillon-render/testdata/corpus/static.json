@@ -1,0 +1,21 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#101418",
+  "assets": {
+    "body": { "type": "font", "src": "assets/font.ttf" },
+    "quad": { "type": "image", "src": "assets/quadrants.png" }
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "duration": 211680000,
+      "elements": [
+        { "type": "rect", "x": 20, "y": 20, "w": 120, "h": 60, "color": "#c23b22" },
+        { "type": "image", "asset": "quad", "x": 200, "y": 40, "w": 96, "h": 96, "fit": "contain" },
+        { "type": "text", "text": "Quillon", "font": "body", "x": 160, "y": 180, "size": 28.0, "color": "#f2f2f2" }
+      ]
+    }
+  ]
+}

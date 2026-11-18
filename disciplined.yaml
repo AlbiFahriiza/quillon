@@ -1,0 +1,73 @@
+# disciplined.yaml — Quillon (disciplined-coding 2.2 "Panoptes")
+# Layer plan mirrors myquillonplan.md §6.2: one-way dependencies, core depends
+# on nothing internal. arch_gate.py enforces this against the import graph.
+profile: balanced
+strict: true
+
+stacks:
+  rust: true
+
+complexity:
+  max_cyclomatic: 10
+  max_params: 7
+  max_nesting: 4
+  max_function_lines: 80
+
+coverage:
+  enabled: true
+  minimum_global: 80
+  minimum_per_file: 60
+  tool: auto
+  command: ""
+  required_report: false
+
+arch:
+  enabled: true
+  forbid_cycles: true
+  layers:
+    core:
+      paths: [crates/quillon-core]
+      may: []
+    render:
+      paths: [crates/quillon-render]
+      may: [core]
+    media:
+      paths: [crates/quillon-media]
+      may: [core]
+    cli:
+      paths: [crates/quillon-cli]
+      may: [core, render, media]
+    xtask:
+      paths: [crates/xtask]
+      may: [core, render]
+
+security:
+  enabled: true
+  severity: null
+deps:
+  enabled: true
+  severity: null
+
+memory:
+  enabled: true
+  path: .disciplined/memory.json
+  escalation:
+    2: warn_to_block
+    3: lock
+
+delegation:
+  gate_subagent_output: true
+  record_path: .disciplined/delegation.json
+  roles:
+    coder: balanced
+    reviewer: extreme
+    planner: pragmatic
+
+guard:
+  extra_deny: []
+  extra_ask: []
+
+custom_rules: []
+
+reporting:
+  format: auto

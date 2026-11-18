@@ -1,0 +1,38 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#000000",
+  "assets": {
+    "body": { "type": "font", "src": "assets/font.ttf" }
+  },
+  "scenes": [
+    {
+      "id": "fade-in",
+      "duration": 705600000,
+      "elements": [
+        {
+          "type": "rect", "x": 40, "y": 40, "w": 240, "h": 160, "color": "#2f6df6",
+          "anim": {
+            "opacity": { "keys": [ { "t": 0, "v": 0.0, "ease": "out_cubic" }, { "t": 352800000, "v": 1.0 } ] },
+            "translate_y": { "keys": [ { "t": 0, "v": 60.0, "ease": "out_back" }, { "t": 352800000, "v": 0.0 } ] }
+          }
+        },
+        {
+          "type": "text", "text": "Motion", "font": "body", "x": 160, "y": 120, "size": 36.0, "color": "#ffffff",
+          "anim": {
+            "opacity": { "keys": [ { "t": 0, "v": 0.0, "ease": "out_cubic" }, { "t": 352800000, "v": 1.0 } ] }
+          }
+        }
+      ]
+    },
+    {
+      "id": "hold",
+      "duration": 352800000,
+      "elements": [
+        { "type": "rect", "x": 40, "y": 40, "w": 240, "h": 160, "color": "#2f6df6" },
+        { "type": "text", "text": "Cut.", "font": "body", "x": 160, "y": 120, "size": 36.0, "color": "#ffffff" }
+      ]
+    }
+  ]
+}

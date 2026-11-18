@@ -1,0 +1,5 @@
+/target
+.disciplined/
+# Scratch from unpacking quillon.plan during planning; canonical copies live in research/.
+*.dec
+core

@@ -1,0 +1,29 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#f5f2ea",
+  "assets": {
+    "body": { "type": "font", "src": "assets/font.ttf" }
+  },
+  "scenes": [
+    {
+      "id": "title",
+      "duration": 352800000,
+      "elements": [
+        {
+          "type": "text", "text": "Quillon", "font": "body", "x": 160, "y": 110, "size": 44.0,
+          "color": "#233241", "align": "center",
+          "anim": {
+            "translate_y": { "keys": [ { "t": 0, "v": 30.0, "ease": "out_back" }, { "t": 352800000, "v": 0.0 } ] },
+            "opacity": { "keys": [ { "t": 0, "v": 0.0, "ease": "out_cubic" }, { "t": 176400000, "v": 1.0 } ] }
+          }
+        },
+        {
+          "type": "text", "text": "video as code", "font": "body", "x": 160, "y": 160, "size": 18.0,
+          "color": "#7a6f5d", "align": "center"
+        }
+      ]
+    }
+  ]
+}

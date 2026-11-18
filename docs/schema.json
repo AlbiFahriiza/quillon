@@ -1,0 +1,476 @@
+{
+  "$defs": {
+    "Anim": {
+      "additionalProperties": false,
+      "description": "Per-element animation. Every property is optional and independent.",
+      "properties": {
+        "opacity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Track"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rotate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Track"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Track"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "translate_x": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Track"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "translate_y": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Track"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Asset": {
+      "description": "A referenced asset. `src` is relative to the document's directory and must\nstay inside it (no absolute paths, no `..`); `sha256`, when present, pins\nthe exact bytes.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "src": {
+              "type": "string"
+            },
+            "type": {
+              "const": "image",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "src"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "src": {
+              "type": "string"
+            },
+            "type": {
+              "const": "font",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "src"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Color": {
+      "type": "string"
+    },
+    "ColorSpace": {
+      "description": "Authoring color space of document colors. Format v1 accepts sRGB only.",
+      "enum": [
+        "srgb"
+      ],
+      "type": "string"
+    },
+    "Ease": {
+      "description": "Easing curve applied to the segment that *starts* at the key carrying it\n(the last key's `ease` is ignored).",
+      "enum": [
+        "linear",
+        "in_quad",
+        "out_quad",
+        "in_cubic",
+        "out_cubic",
+        "in_out_cubic",
+        "in_quart",
+        "out_quart",
+        "in_back",
+        "out_back"
+      ],
+      "type": "string"
+    },
+    "Element": {
+      "description": "A scene element. Rendered bottom-to-top in document order.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A text block. `(x, y)` is the *center* of the laid-out text, matching the\nplan's example (title at 960, 540 on a 1920x1080 canvas).",
+          "properties": {
+            "align": {
+              "$ref": "#/$defs/TextAlign",
+              "default": "center"
+            },
+            "anim": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Anim"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "color": {
+              "$ref": "#/$defs/Color",
+              "default": "#ffffff"
+            },
+            "font": {
+              "description": "Key of a `font` asset.",
+              "type": "string"
+            },
+            "size": {
+              "description": "Font size in pixels, (0, 512].",
+              "format": "float",
+              "type": "number"
+            },
+            "text": {
+              "description": "Non-empty.",
+              "type": "string"
+            },
+            "type": {
+              "const": "text",
+              "type": "string"
+            },
+            "x": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "y": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "text",
+            "font",
+            "x",
+            "y",
+            "size"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A solid rectangle. `(x, y)` is the top-left corner.",
+          "properties": {
+            "anim": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Anim"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "color": {
+              "$ref": "#/$defs/Color",
+              "default": "#ffffff"
+            },
+            "h": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": {
+              "const": "rect",
+              "type": "string"
+            },
+            "w": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "x": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "y": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An image drawn into a destination box. `(x, y)` is the top-left corner.",
+          "properties": {
+            "anim": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Anim"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "asset": {
+              "description": "Key of an `image` asset.",
+              "type": "string"
+            },
+            "fit": {
+              "$ref": "#/$defs/Fit",
+              "default": "contain"
+            },
+            "h": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": {
+              "const": "image",
+              "type": "string"
+            },
+            "w": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "x": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "y": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "asset",
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Fit": {
+      "description": "How an image fills its destination box (Editly's resizeMode set, research/G §2).",
+      "enum": [
+        "contain",
+        "cover",
+        "stretch"
+      ],
+      "type": "string"
+    },
+    "Key": {
+      "additionalProperties": false,
+      "description": "One keyframe. `ease` applies to the segment starting at this key.",
+      "properties": {
+        "ease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "t": {
+          "description": "Scene-local time in ticks, `>= 0` and `<=` the scene duration.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "v": {
+          "description": "Animated value: opacity in [0,1]; translate in px; scale around 1.0;\nrotation in degrees.",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "v"
+      ],
+      "type": "object"
+    },
+    "Scene": {
+      "additionalProperties": false,
+      "description": "A scene: `duration` ticks, elements stacked bottom-to-top.",
+      "properties": {
+        "duration": {
+          "description": "In ticks, `> 0`.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "elements": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Element"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Unique, non-empty, at most 128 bytes.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "duration"
+      ],
+      "type": "object"
+    },
+    "Size": {
+      "additionalProperties": false,
+      "description": "Canvas size in pixels.",
+      "properties": {
+        "h": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "w": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "w",
+        "h"
+      ],
+      "type": "object"
+    },
+    "TextAlign": {
+      "description": "Horizontal text alignment within its line box.",
+      "enum": [
+        "left",
+        "center",
+        "right"
+      ],
+      "type": "string"
+    },
+    "Track": {
+      "additionalProperties": false,
+      "description": "A keyframe track for one animatable property.",
+      "properties": {
+        "keys": {
+          "description": "At least two, strictly increasing in `t`.",
+          "items": {
+            "$ref": "#/$defs/Key"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "keys"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The root document.",
+  "properties": {
+    "assets": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Asset"
+      },
+      "default": {},
+      "type": "object"
+    },
+    "bg": {
+      "$ref": "#/$defs/Color",
+      "default": "#000000"
+    },
+    "bit_depth": {
+      "default": 8,
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "color_space": {
+      "$ref": "#/$defs/ColorSpace",
+      "default": "srgb"
+    },
+    "fps": {
+      "default": 30,
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/Scene"
+      },
+      "type": "array"
+    },
+    "size": {
+      "$ref": "#/$defs/Size"
+    },
+    "timebase": {
+      "default": 705600000,
+      "format": "int64",
+      "type": "integer"
+    },
+    "v": {
+      "description": "Format version; `1` for this build.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "v",
+    "size",
+    "scenes"
+  ],
+  "title": "Document",
+  "type": "object"
+}

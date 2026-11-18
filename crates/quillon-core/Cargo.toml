@@ -1,0 +1,16 @@
+[package]
+name = "quillon-core"
+description = "Quillon document model: schema, validation, lint, canonical JSON, builder"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+jsonschema = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }

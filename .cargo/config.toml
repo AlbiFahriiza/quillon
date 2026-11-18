@@ -1,0 +1,3 @@
+# matklad's xtask pattern: `cargo xtask <cmd>` instead of Makefiles.
+[alias]
+xtask = "run -p xtask --"

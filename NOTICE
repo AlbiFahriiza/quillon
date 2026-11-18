@@ -1,0 +1,32 @@
+NOTICE — Quillon
+
+Quillon is licensed under MIT OR Apache-2.0 (see LICENSE-MIT, LICENSE-APACHE).
+
+FFmpeg
+------
+Quillon's default render mode drives the ffmpeg binary found on the user's
+PATH. Quillon does not distribute or bundle FFmpeg. FFmpeg is licensed under
+the LGPLv2.1 or later (or GPLv2+ / GPLv3+, depending on how the user's build
+was configured); see https://ffmpeg.org/legal.html and the license that came
+with the user's FFmpeg build. Optional in-process libav builds are a local
+build option chosen by the user, not an artifact distributed by this project.
+
+Direct dependencies (license strings verified against the crates.io API on
+2026-11-18):
+
+  serde 1.0.229            MIT OR Apache-2.0
+  serde_json 1.0.154       MIT OR Apache-2.0
+  schemars 1.2.3           MIT
+  jsonschema 0.61.2        MIT
+  clap 4.6.8               MIT OR Apache-2.0
+  tiny-skia 0.12.0         BSD-3-Clause
+  cosmic-text 0.19.0       MIT OR Apache-2.0
+  image 0.25.10            MIT OR Apache-2.0
+  ffmpeg-sidecar 2.7.0     MIT
+  thiserror 2.0.21         MIT OR Apache-2.0
+  anyhow 1.0.104           MIT OR Apache-2.0
+  sha2 0.11.1              MIT OR Apache-2.0
+
+Test fixtures: DejaVu Sans (test fonts) is used under its free license
+(Bitstream Vera / Public Domain dual licensing); see
+https://dejavu-fonts.github.io/

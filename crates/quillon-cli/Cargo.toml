@@ -1,0 +1,22 @@
+[package]
+name = "quillon-cli"
+description = "Quillon command-line interface: validate and render video documents"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "quillon"
+path = "src/main.rs"
+
+[dependencies]
+quillon-core = { workspace = true }
+quillon-render = { workspace = true }
+quillon-media = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+image = { workspace = true }
+sha2 = { workspace = true }

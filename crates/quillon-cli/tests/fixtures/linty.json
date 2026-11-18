@@ -1,0 +1,40 @@
+{
+  "v": 1,
+  "size": {
+    "w": 320,
+    "h": 240
+  },
+  "fps": 10,
+  "bg": "#101418",
+  "assets": {
+    "body": {
+      "type": "font",
+      "src": "assets/font.ttf"
+    }
+  },
+  "scenes": [
+    {
+      "id": "s1",
+      "duration": 705600000,
+      "elements": [
+        {
+          "type": "text",
+          "text": "invisible",
+          "font": "body",
+          "x": 160,
+          "y": 120,
+          "size": 24.0,
+          "color": "#121418"
+        },
+        {
+          "type": "rect",
+          "x": 900,
+          "y": 900,
+          "w": 40,
+          "h": 40,
+          "color": "#ffffff"
+        }
+      ]
+    }
+  ]
+}

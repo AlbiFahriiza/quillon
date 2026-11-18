@@ -1,0 +1,16 @@
+[package]
+name = "quillon-media"
+description = "Media adapters for Quillon: MP4 encode via the system ffmpeg binary (sidecar mode)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+quillon-core = { workspace = true }
+ffmpeg-sidecar = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+quillon-render = { workspace = true }

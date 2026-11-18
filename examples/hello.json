@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "size": { "w": 1920, "h": 1080 },
+  "fps": 30,
+  "bg": "#101820",
+  "assets": {
+    "body": { "type": "font", "src": "assets/DejaVuSans-ascii.ttf" },
+    "logo": { "type": "image", "src": "assets/logo.png" }
+  },
+  "scenes": [
+    {
+      "id": "title",
+      "duration": 705600000,
+      "elements": [
+        {
+          "type": "rect", "x": 760, "y": 380, "w": 400, "h": 320, "color": "#1d2a3a",
+          "anim": {
+            "opacity": { "keys": [ { "t": 0, "v": 0.0, "ease": "out_cubic" }, { "t": 176400000, "v": 1.0 } ] }
+          }
+        },
+        {
+          "type": "text", "text": "Quillon", "font": "body", "x": 960, "y": 480, "size": 110.0, "color": "#f4f6f8",
+          "anim": {
+            "translate_y": { "keys": [ { "t": 0, "v": 60.0, "ease": "out_back" }, { "t": 176400000, "v": 0.0 } ] },
+            "opacity": { "keys": [ { "t": 0, "v": 0.0, "ease": "out_cubic" }, { "t": 176400000, "v": 1.0 } ] }
+          }
+        },
+        {
+          "type": "text", "text": "video as code", "font": "body", "x": 960, "y": 590, "size": 40.0, "color": "#9fb2c8"
+        },
+        {
+          "type": "image", "asset": "logo", "x": 904, "y": 660, "w": 112, "h": 112, "fit": "contain"
+        }
+      ]
+    }
+  ]
+}

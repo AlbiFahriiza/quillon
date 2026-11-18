@@ -1,0 +1,2 @@
+035258a147574da62cb8e9f96388eed2d33b31414d71410651198006f575fe3a  testdata/fonts/DejaVuSans-ascii.ttf
+cbb729b15b71376cbac4faa4db68f0093cc43da48cbc246f4ece869874561d7b  testdata/img/quadrants.png
