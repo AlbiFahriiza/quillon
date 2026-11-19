@@ -94,6 +94,11 @@ enum Command {
         #[command(subcommand)]
         action: CaptionAction,
     },
+    /// OTIO import/export (plan §12 v0.6, subset).
+    Otio {
+        #[command(subcommand)]
+        action: OtioAction,
+    },
     /// Analyze the document's audio mix (plan §12 v0.5).
     Audio {
         #[command(subcommand)]
@@ -180,6 +185,21 @@ enum CaptionAction {
         /// Keep whisper's timing exactly; skip regularization.
         #[arg(long)]
         no_regularize: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum OtioAction {
+    /// Import an OpenTimelineIO subset timeline as a document.
+    Import {
+        otio: PathBuf,
+        /// Write the document here (default: stdout).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Where relative media URLs resolve (default: the .otio file's
+        /// directory).
+        #[arg(long)]
+        media_dir: Option<String>,
     },
 }
 
@@ -303,6 +323,13 @@ fn main() {
                 },
                 no_regularize,
             ),
+        },
+        Command::Otio { action } => match action {
+            OtioAction::Import {
+                otio,
+                out,
+                media_dir,
+            } => otio_import(&otio, out, media_dir.as_deref()),
         },
         Command::Audio { action } => match action {
             AudioAction::Analyze {
@@ -609,6 +636,49 @@ fn render(
                 println!("frame manifest: {}", outcome.manifest_path.display());
             }
             0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+/// `quillon otio import` (plan §12 v0.6): the flat OTIO subset becomes a
+/// document, which must itself validate — including the media probe —
+/// before it is written.
+fn otio_import(otio_path: &Path, out: Option<PathBuf>, media_dir: Option<&str>) -> i32 {
+    let input = match std::fs::read_to_string(otio_path) {
+        Ok(text) => text,
+        Err(err) => {
+            eprintln!("cannot read {}: {err}", otio_path.display());
+            return 1;
+        }
+    };
+    // Relative media URLs resolve against the .otio file's directory by
+    // default.
+    let default_dir = otio_path
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| ".".to_string());
+    let media_dir = media_dir.unwrap_or(&default_dir);
+    match quillon_core::import_otio(&input, Some(media_dir)) {
+        Ok(doc) => {
+            for warning in quillon_core::subset_warnings(&input) {
+                eprintln!("warning: {warning}");
+            }
+            let base = Path::new(media_dir);
+            let errors = quillon_core::validate_document(&doc, base);
+            if !errors.is_empty() {
+                for error in &errors {
+                    eprintln!("{error}");
+                }
+                eprintln!(
+                    "the imported timeline would be an invalid document; check the media paths"
+                );
+                return 2;
+            }
+            write_document(&doc, out)
         }
         Err(err) => {
             eprintln!("{err}");
