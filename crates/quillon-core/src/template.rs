@@ -151,6 +151,20 @@ pub fn apply_template_json(
     substitute_tree(doc, &values)
 }
 
+/// Fill a non-document pattern (the `--out` filename template) with a
+/// row's resolved values — same markers, same type checks.
+pub fn fill_pattern(
+    pattern: &str,
+    defs: &BTreeMap<String, VariableDef>,
+    row: &BTreeMap<String, String>,
+) -> Result<String, TemplateError> {
+    let mut values = BTreeMap::new();
+    for (name, def) in defs {
+        values.insert(name.clone(), resolve(name, def, row)?);
+    }
+    interpolate(pattern, &values)
+}
+
 fn substitute_tree(
     value: &Value,
     values: &BTreeMap<String, String>,

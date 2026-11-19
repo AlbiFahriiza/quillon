@@ -1,0 +1,26 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#101418",
+  "assets": { "body": { "type": "font", "src": "assets/font.ttf" } },
+  "variables": {
+    "name": { "type": "string", "default": "you" }
+  },
+  "scenes": [
+    {
+      "id": "bg",
+      "duration": 352800000,
+      "elements": [
+        { "type": "rect", "x": 40, "y": 40, "w": 240, "h": 160, "color": "#233241" }
+      ]
+    },
+    {
+      "id": "card",
+      "duration": 352800000,
+      "elements": [
+        { "type": "text", "text": "Hello {{name}}", "font": "body", "x": 160, "y": 120, "size": 24.0, "color": "#f2f2f2" }
+      ]
+    }
+  ]
+}

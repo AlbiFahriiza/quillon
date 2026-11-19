@@ -1,0 +1,8 @@
+{
+            "v": 1,
+            "size": { "w": 320, "h": 240 },
+            "assets": { "body": { "type": "font", "src": "assets/font.ttf" } },
+            "variables": { "accent": { "type": "color", "default": "#ffffff" } },
+            "scenes": [ { "id": "s", "duration": 352800000,
+                "elements": [ { "type": "rect", "x": 0, "y": 0, "w": 10, "h": 10, "color": "{{accent}}" } ] } ]
+        }

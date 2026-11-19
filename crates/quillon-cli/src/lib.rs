@@ -4,7 +4,9 @@
 //! in `main.rs` is a thin shell over it.
 
 pub mod audio_cmd;
+pub mod batch;
 pub mod caption_cmd;
+pub mod csv;
 pub mod mcp;
 pub mod preview;
 pub mod render_doc;

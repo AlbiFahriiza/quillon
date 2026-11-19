@@ -25,6 +25,9 @@ pub struct RenderOutcome {
     pub output: PathBuf,
     pub manifest_path: PathBuf,
     pub frame_hashes: Vec<String>,
+    /// (hits, misses) when a cache directory was given; batch renders
+    /// accumulate these to prove shared-cache reuse.
+    pub cache_stats: Option<(u64, u64)>,
 }
 
 /// In-memory cache layer budget; the disk layer is bounded by the caller's
@@ -149,11 +152,13 @@ pub fn render_document(
         mux_document_audio(doc, base, out, lufs)?;
     }
 
+    let cache_stats = cache.as_ref().map(|c| c.stats());
     Ok(RenderOutcome {
         frames,
         output: out.to_path_buf(),
         manifest_path,
         frame_hashes: hashes,
+        cache_stats,
     })
 }
 

@@ -73,6 +73,11 @@ enum Command {
         /// the EBU R128 broadcast preset is -23.
         #[arg(long)]
         lufs: Option<f64>,
+        /// Fill the document's template variables from this CSV, one
+        /// video per row (mail merge); `--out` is a `{{variable}}`
+        /// pattern.
+        #[arg(long)]
+        data: Option<PathBuf>,
         /// Print machine-readable JSON.
         #[arg(long)]
         json: bool,
@@ -219,8 +224,25 @@ fn main() {
             workers,
             cache_dir,
             lufs,
+            data,
             json,
-        } => render(&doc, &out, format, workers, cache_dir, lufs, json),
+        } => match data {
+            Some(data) => {
+                let out_pattern = out.to_string_lossy().to_string();
+                let args = quillon_cli::batch::BatchArgs {
+                    template: &doc,
+                    data: &data,
+                    out_pattern: &out_pattern,
+                    format,
+                    workers,
+                    cache_dir: cache_dir.as_deref(),
+                    lufs,
+                    json,
+                };
+                render_data(args)
+            }
+            None => render(&doc, &out, format, workers, cache_dir, lufs, json),
+        },
         Command::Preview { doc, port } => preview(&doc, port),
         Command::Mcp { root } => quillon_cli::mcp::run(root),
         Command::Caption { action } => match action {
@@ -501,6 +523,45 @@ fn validate(path: &Path, json: bool, allow_lint: bool) -> i32 {
         println!("{}: valid", path.display());
     }
     0
+}
+
+/// `render --data`: the mail-merge batch (plan §12 v0.6). A row whose
+/// filled document fails validation is an invalid-document failure (exit
+/// 2); every other batch problem is operational (exit 1).
+fn render_data(args: quillon_cli::batch::BatchArgs) -> i32 {
+    match quillon_cli::batch::render_batch(&args) {
+        Ok(summary) => {
+            if args.json {
+                let body = quillon_cli::batch::summary_json(&summary);
+                println!("{body}");
+            } else {
+                println!(
+                    "rendered {} row(s) -> {}",
+                    summary.rows,
+                    summary
+                        .outputs
+                        .first()
+                        .map(|p| p.parent().unwrap_or(p))
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                );
+                println!(
+                    "cache: {} hit(s), {} miss(es)",
+                    summary.hits, summary.misses
+                );
+            }
+            0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            // The batch's validation failures always carry this marker.
+            if err.contains("the filled document is invalid") {
+                2
+            } else {
+                1
+            }
+        }
+    }
 }
 
 fn render(
