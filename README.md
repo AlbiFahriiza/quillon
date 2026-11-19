@@ -44,13 +44,26 @@ not).
 ```
 quillon validate <doc.json> [--json] [--allow-lint]
 quillon render <doc.json> -o <out> [--format png|mp4] [--workers N]
-                 [--cache-dir <dir>] [--json]
+                 [--cache-dir <dir>] [--lufs <target>] [--json]
 quillon preview <doc.json> [--port N]
+quillon probe <media-file> [--json]
+quillon inspect <doc.json> [--json]
+quillon mcp [--root <dir>]
 ```
 
 Exit codes: `0` success · `2` invalid document (errors carry JSON pointers) ·
 `3` valid but lint findings (suppress with `--allow-lint`) · `1` other errors.
 All subcommands accept `--json` for machine-readable output.
+
+## Agent surface (MCP)
+
+`quillon mcp` serves the agent tool set over stdio (plan §8): validate,
+preview frames, diff documents, list assets/fonts, probe media, render a
+frame, and start/poll a full render — cheapest first, so most turns cost no
+pixels. Register it:
+`claude mcp add --scope user quillon -- quillon mcp --root <project-dir>`.
+The agent-facing guide is [`skills/quillon/SKILL.md`](skills/quillon/SKILL.md);
+the schema is also served as the `quillon://schema/document` resource.
 
 ## Document format (v1)
 
@@ -62,7 +75,9 @@ curves. Scenes transition with `cut` (the default) or `crossfade`, blended in
 linear light over the previous scene. Rects fill with a solid color or a
 linear `gradient` (stops interpolated in linear light) and take a corner
 `radius`; any element can carry a blurred `shadow` and a rectangular `clip`.
-The full schema ships as [`docs/schema.json`](docs/schema.json)
+`video` elements trim existing footage with `source_range` (keyframe-accurate
+decode-forward); audio tracks mix with `gain`, `fades` and optional LUFS
+normalization (EBU R128 −23 preset). The full schema ships as [`docs/schema.json`](docs/schema.json)
 (regenerated with `cargo xtask export-schema`).
 
 The same document always renders to identical frame hashes on the same

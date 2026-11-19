@@ -12,7 +12,7 @@ with the user's FFmpeg build. Optional in-process libav builds are a local
 build option chosen by the user, not an artifact distributed by this project.
 
 Direct dependencies (license strings verified against the crates.io API on
-2026-11-18):
+2026-11-18; rmcp and base64 re-verified on 2026-11-19):
 
   serde 1.0.229            MIT OR Apache-2.0
   serde_json 1.0.154       MIT OR Apache-2.0
@@ -32,6 +32,8 @@ Direct dependencies (license strings verified against the crates.io API on
   symphonia 0.6.1          MPL-2.0
   rubato 5.1.0             MIT OR Apache-2.0
   ebur128 0.1.11           MIT
+  rmcp 3.11.0              Apache-2.0
+  base64 0.23.1            MIT OR Apache-2.0
 
 Test fixtures: DejaVu Sans (test fonts) is used under its free license
 (Bitstream Vera / Public Domain dual licensing); see

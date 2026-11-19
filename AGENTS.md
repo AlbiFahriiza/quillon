@@ -14,6 +14,16 @@ Conventions for coding agents working in this repository.
 - Gates: `python3 <disciplined-coding>/scripts/check_diff.py`,
   `arch_gate.py`, `stop_gate.py` from the repo root (config: `disciplined.yaml`)
 
+## MCP agent surface (v0.4)
+
+`quillon mcp` serves the plan §8 tool set over stdio (stdio only — a hosted
+HTTP endpoint is a separate service, research/I §2). The server lives in
+`crates/quillon-cli/src/mcp.rs`; render machinery is shared with the CLI via
+`crates/quillon-cli/src/render_doc.rs` (same-engine guarantee). Register it:
+`claude mcp add --scope user quillon -- quillon mcp --root <dir>`. Agent
+usage follows the cheapest-first loop in `skills/quillon/SKILL.md`;
+E2E coverage is `crates/quillon-cli/tests/mcp_e2e.rs`.
+
 ## Architecture rules (myquillonplan.md §3, §6)
 
 - One-way dependencies: `quillon-core` imports no internal crate; `render`,
