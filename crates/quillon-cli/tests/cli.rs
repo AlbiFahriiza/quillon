@@ -43,6 +43,43 @@ fn valid_document_exits_zero() {
 }
 
 #[test]
+fn zero_workers_is_a_named_error_not_a_silent_fallback() {
+    // Hardening D6: the pipeline used to quietly clamp a zero worker
+    // count to one; a typo should say so.
+    let (code, _stdout, stderr) = run(&[
+        "render",
+        &fixture("valid.json"),
+        "-o",
+        "/tmp/should-not-exist.mp4",
+        "--workers",
+        "0",
+    ]);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(stderr.contains("--workers must be at least 1"), "{stderr}");
+    assert!(
+        !PathBuf::from("/tmp/should-not-exist.mp4").exists(),
+        "nothing may be written for a rejected run"
+    );
+}
+
+#[test]
+fn a_directory_as_the_output_path_is_a_named_error() {
+    let dir = std::env::temp_dir().join("quillon-out-dir-guard");
+    std::fs::create_dir_all(&dir).unwrap();
+    let (code, _stdout, stderr) = run(&[
+        "render",
+        &fixture("valid.json"),
+        "-o",
+        dir.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(
+        stderr.contains("is a directory"),
+        "the error names the problem: {stderr}"
+    );
+}
+
+#[test]
 fn invalid_document_exits_two_with_json_pointer() {
     let (code, _stdout, stderr) = run(&["validate", &fixture("bad.json")]);
     assert_eq!(code, 2, "stderr: {stderr}");

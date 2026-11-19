@@ -372,6 +372,51 @@ mod tests {
     }
 
     #[test]
+    fn substituted_values_are_not_re_interpolated() {
+        // Hardening D5: a row value that itself contains a marker must
+        // land as literal text — one substitution pass, no recursion.
+        // Re-interpolating would let a data file inject another
+        // variable's value.
+        let doc = json!({ "text": "{{name}}" });
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "name".into(),
+            VariableDef {
+                variable_type: VariableType::String,
+                default: "{{score}}".into(),
+            },
+        );
+        defs.insert(
+            "score".into(),
+            VariableDef {
+                variable_type: VariableType::Number,
+                default: "42".into(),
+            },
+        );
+        let out = apply_template_json(&doc, &defs, &BTreeMap::new()).unwrap();
+        assert_eq!(out["text"], json!("{{score}}"));
+    }
+
+    #[test]
+    fn markers_tolerate_inner_whitespace_and_keys_stay_literal() {
+        // Whitespace inside a marker is trimmed (mail-merge friendliness),
+        // and markers in object KEY position are never substituted —
+        // only values walk the tree.
+        let doc = json!({ "{{ name }}": "{{ name }}" });
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "name".into(),
+            VariableDef {
+                variable_type: VariableType::String,
+                default: "Ada".into(),
+            },
+        );
+        let out = apply_template_json(&doc, &defs, &BTreeMap::new()).unwrap();
+        assert!(out.get("{{ name }}").is_some(), "keys stay literal: {out}");
+        assert_eq!(out["{{ name }}"], json!("Ada"));
+    }
+
+    #[test]
     fn substitution_reaches_nested_assets() {
         let doc = json!({
             "assets": { "photo": { "type": "image", "src": "img/{{name}}.png" } }

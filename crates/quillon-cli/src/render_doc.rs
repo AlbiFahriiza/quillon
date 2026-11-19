@@ -55,6 +55,19 @@ pub fn render_document(
     format: Format,
     opts: &RenderOptions,
 ) -> Result<RenderOutcome, String> {
+    // Hardening D6: a zero worker count is a typo, not a request for a
+    // silent fallback — name it instead of quietly rendering with one.
+    if opts.workers == Some(0) {
+        return Err("--workers must be at least 1".to_string());
+    }
+    // A directory as the output path would otherwise surface as an
+    // opaque ffmpeg failure deep in the encode.
+    if out.is_dir() {
+        return Err(format!(
+            "the output path {} is a directory; it must be a file path",
+            out.display()
+        ));
+    }
     let workers = opts.workers.unwrap_or_else(|| {
         std::thread::available_parallelism()
             .map(|n| n.get())
