@@ -285,10 +285,27 @@ impl FrameCache {
         if bytes.len() < 8 {
             return Ok(None);
         }
+        // invariant: both header slices are exactly 4 bytes (len >= 8
+        // is checked above), so try_into cannot fail here.
         let width = u32::from_le_bytes(bytes[0..4].try_into().expect("4 bytes"));
         let height = u32::from_le_bytes(bytes[4..8].try_into().expect("4 bytes"));
         let rgba = bytes[8..].to_vec();
-        if rgba.len() != (width as usize) * (height as usize) * 4 {
+        // A frame we wrote always has non-zero, renderer-legal
+        // dimensions; anything else is a corrupt or foreign file.
+        // Checked math also stops a crafted header (e.g. 2^31 x 2^31,
+        // whose w*h*4 wraps to 0 on 64-bit) from matching a short
+        // buffer and later panicking the renderer's buffer-length
+        // invariant.
+        if width == 0 || height == 0 {
+            return Ok(None);
+        }
+        let Some(expected) = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            return Ok(None);
+        };
+        if rgba.len() != expected {
             return Ok(None);
         }
         Ok(Some(Frame {
@@ -398,6 +415,33 @@ mod tests {
         assert_eq!(a, b);
         // A different tick is a different frame.
         assert_ne!(a, keys.frame_key(&doc, 1, 12346));
+    }
+
+    #[test]
+    fn corrupt_frame_files_are_misses_not_panics() {
+        let dir = std::env::temp_dir().join(format!("quillon-corrupt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("deadbeef.frame");
+        // A header claiming 2^31 x 2^31 makes w*h*4 wrap to 0 in
+        // release builds; it must be a miss, not a poisoned Frame that
+        // later panics the renderer's buffer-length invariant.
+        std::fs::write(&file, [0u8, 0, 0, 0x80, 0, 0, 0, 0x80]).unwrap();
+        assert!(matches!(FrameCache::read_frame(&file), Ok(None)));
+        // Truncated header.
+        std::fs::write(&file, [1u8, 2, 3]).unwrap();
+        assert!(matches!(FrameCache::read_frame(&file), Ok(None)));
+        // Zero dimension.
+        std::fs::write(&file, [0u8; 8]).unwrap();
+        assert!(matches!(FrameCache::read_frame(&file), Ok(None)));
+        // Plausible dimensions, wrong payload length.
+        std::fs::write(&file, [64u8, 0, 0, 0, 32, 0, 0, 0, 1, 2, 3]).unwrap();
+        assert!(matches!(FrameCache::read_frame(&file), Ok(None)));
+        // A legal entry still loads.
+        let mut good = vec![64u8, 0, 0, 0, 32, 0, 0, 0];
+        good.extend(std::iter::repeat_n(7u8, 64 * 32 * 4));
+        std::fs::write(&file, good).unwrap();
+        let frame = FrameCache::read_frame(&file).unwrap().unwrap();
+        assert_eq!((frame.width, frame.height), (64, 32));
     }
 
     #[test]
