@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Conventions for coding agents working in this repository.
+Conventions for coding agents working in this repository. Version:
+1.0.0-beta.1 (stability policy: `docs/STABILITY.md`).
 
 ## Commands
 
@@ -11,13 +12,21 @@ Conventions for coding agents working in this repository.
 - Schema export: `cargo xtask export-schema` (writes `docs/schema.json`)
 - Golden refresh: `cargo xtask golden` (only with a deliberate renderer change;
   see `myquillonplan.md` §14 for the commit policy)
+- Gallery refresh: `cargo xtask gallery` (writes `docs/gallery-assets/*.png`
+  from `templates/` — never edit the images by hand)
+- Benchmarks: `cargo run --release -p xtask -- bench` (writes
+  `docs/benchmarks.md`; hardware-disclosed, median + p10/p90, research/Q)
 - Gates: `python3 <disciplined-coding>/scripts/check_diff.py`,
-  `arch_gate.py`, `stop_gate.py` from the repo root (config: `disciplined.yaml`)
+  `arch_gate.py`, `stop_gate.py --check` from the repo root (config:
+  `disciplined.yaml`)
 
-## MCP agent surface (v0.4)
+## MCP agent surface
 
-`quillon mcp` serves the plan §8 tool set over stdio (stdio only — a hosted
-HTTP endpoint is a separate service, research/I §2). The server lives in
+`quillon mcp` serves nine tools over stdio — `validate_document`,
+`preview_frames`, `diff_documents`, `list_assets`, `list_fonts`,
+`probe_media`, `render_frame`, `render_document`, `render_status` —
+plus the schema resource (stdio only — a hosted HTTP endpoint is a
+separate service, research/I §2). The server lives in
 `crates/quillon-cli/src/mcp.rs`; render machinery is shared with the CLI via
 `crates/quillon-cli/src/render_doc.rs` (same-engine guarantee). Register it:
 `claude mcp add --scope user quillon -- quillon mcp --root <dir>`. Agent
