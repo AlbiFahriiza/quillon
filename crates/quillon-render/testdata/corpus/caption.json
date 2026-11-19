@@ -1,0 +1,33 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#101418",
+  "assets": {
+    "body": { "type": "font", "src": "assets/font.ttf" }
+  },
+  "captions": [
+    {
+      "style": {
+        "font": "body", "size": 22.0, "color": "#ffffff", "align": "center",
+        "position": "bottom", "margin": 26, "bg": "#1c2733",
+        "shadow": { "offset_x": 0.0, "offset_y": 1.0, "blur": 2.0, "color": "#000000" }
+      },
+      "cues": [
+        { "from": 211680000, "to": 635040000, "text": "Quillon captions" },
+        { "from": 670320000, "to": 988800000, "text": "burned in over\nthe composite" }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "id": "cues",
+      "duration": 988800000,
+      "elements": [
+        {
+          "type": "rect", "x": 40, "y": 40, "w": 240, "h": 30, "color": "#233241"
+        }
+      ]
+    }
+  ]
+}
