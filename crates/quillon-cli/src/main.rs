@@ -268,9 +268,9 @@ fn main() {
                     return_exit(1);
                 }
             };
+            let devices = quillon_cli::encode::HwDevices::probe();
             let plan = match quillon_cli::encode::probe_encoders()
-                .map_err(|e| vec![e])
-                .and_then(|available| quillon_cli::encode::resolve(&choice, &available))
+                .and_then(|available| quillon_cli::encode::resolve(&choice, &available, &devices))
             {
                 Ok(plan) => plan,
                 Err(err) => {
