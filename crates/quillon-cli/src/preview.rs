@@ -14,8 +14,9 @@
 use quillon_cache::{FrameCache, SessionKeys};
 use quillon_core::document::Document;
 use quillon_core::draft::scale_document;
-use quillon_core::frame_source::{Frame, NullFrameSource};
+use quillon_core::frame_source::{Frame, FrameSource, NullFrameSource};
 use quillon_core::validate_str;
+use quillon_media::DocumentFrameSource;
 use quillon_render::{RENDERER_VERSION, Renderer};
 use serde_json::json;
 use std::io;
@@ -133,6 +134,13 @@ pub fn render_filmstrip(doc: &Document, base_dir: &Path, cache: &FrameCache) -> 
         Ok(renderer) => renderer,
         Err(_) => return Vec::new(),
     };
+    // Drafts use the same frame-source contract as export (the same-engine
+    // guarantee): the document's video assets when present, the null source
+    // otherwise.
+    let src: Box<dyn FrameSource> = match DocumentFrameSource::open(doc, base_dir) {
+        Ok(source) if !source.is_empty() => Box::new(source),
+        _ => Box::new(NullFrameSource),
+    };
     let mut frames = Vec::with_capacity(count);
     for i in 0..count {
         let tick = i as i64 * total / count as i64;
@@ -144,7 +152,7 @@ pub fn render_filmstrip(doc: &Document, base_dir: &Path, cache: &FrameCache) -> 
             .as_ref()
             .and_then(|k| cache.get(&k.frame_key(doc, scene_idx, local)))
             .or_else(|| {
-                let frame = renderer.render_tick(tick, &NullFrameSource).ok()?;
+                let frame = renderer.render_tick(tick, src.as_ref()).ok()?;
                 if let Some(k) = &keys {
                     let _ = cache.put(k.frame_key(doc, scene_idx, local), frame.clone());
                 }

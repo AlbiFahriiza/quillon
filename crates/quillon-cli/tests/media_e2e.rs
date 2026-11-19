@@ -312,3 +312,32 @@ fn inspect_summarizes_documents() {
     assert_eq!(body["assets"][0]["type"], "font");
     assert_eq!(body["audio"].as_array().map(Vec::len), Some(0));
 }
+
+// ---------------------------------------------------------------------------
+// Preview drafts render video elements through the same frame source the
+// export path uses (same-engine guarantee).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn preview_drafts_render_video_elements() {
+    let dir = Dir::new("preview");
+    let clip = gop250(&dir, "clip.mp4", "libx264", "aac");
+    let doc = format!(
+        r#"{{
+        "v": 1, "size": {{ "w": 320, "h": 240 }}, "fps": 10,
+        "assets": {{ "clip": {{ "type": "video", "src": "clip.mp4" }} }},
+        "scenes": [{{ "id": "s", "duration": {},
+          "elements": [{{ "type": "video", "asset": "clip", "x": 0, "y": 0,
+            "w": 320, "h": 240, "fit": "cover" }}] }}]
+    }}"#,
+        2 * TIMEBASE
+    );
+    let doc: quillon_core::Document = serde_json::from_str(&doc).expect("doc parses");
+    let cache = quillon_cache::FrameCache::open(&dir.0, 8 * 1024 * 1024).expect("cache");
+    let frames = quillon_cli::preview::render_filmstrip(&doc, &dir.0, &cache);
+    assert!(!frames.is_empty(), "draft frames must render");
+    for frame in &frames {
+        assert!(frame.png.len() > 100, "each sampled frame is a real PNG");
+    }
+    let _ = clip;
+}
