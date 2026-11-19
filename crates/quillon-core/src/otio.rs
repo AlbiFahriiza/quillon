@@ -42,7 +42,16 @@ fn rational_to_ticks(time: &Value, what: &str, fps: f64, timebase: i64) -> Resul
         return Err(err(format!("{what} has a non-positive rate {rate}")));
     }
     let value = time["value"].as_f64().unwrap_or(0.0);
-    Ok((value * timebase as f64 / rate).round() as i64)
+    let ticks = value * timebase as f64 / rate;
+    // Hardening D4: a float cast out of range saturates silently
+    // (infinity becomes i64::MAX), so an absurd or infinite value must
+    // be a named error instead of a clamped timeline position.
+    if !ticks.is_finite() || ticks >= i64::MAX as f64 || ticks <= i64::MIN as f64 {
+        return Err(err(format!(
+            "{what} has a value ({value}) that overflows the timeline at rate {rate}"
+        )));
+    }
+    Ok(ticks.round() as i64)
 }
 
 /// The fps the document will use: the first clip rate that maps to a legal
@@ -309,6 +318,20 @@ mod tests {
             ]
         }
     }"##;
+
+    #[test]
+    fn absurd_durations_are_named_errors_not_saturated_casts() {
+        // Hardening D4: a value beyond i64 range used to saturate the
+        // float cast silently (i64::MAX), pinning the scene at a
+        // nonsense tick instead of failing.
+        let evil = TIMELINE.replace("\"value\": 60.0", "\"value\": 1e300");
+        let error = import_otio(&evil, None).unwrap_err();
+        assert!(
+            error.message.contains("overflows the timeline"),
+            "{}",
+            error.message
+        );
+    }
 
     #[test]
     fn imports_clips_with_exact_source_ranges() {
