@@ -992,6 +992,49 @@
         "crossfade"
       ],
       "type": "string"
+    },
+    "VariableDef": {
+      "additionalProperties": false,
+      "description": "One declared template variable with its fallback: a template rendered\nwithout `--data` uses the defaults and stays a valid document.",
+      "properties": {
+        "default": {
+          "description": "Used when a data row omits this column.",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/VariableType"
+        }
+      },
+      "required": [
+        "type",
+        "default"
+      ],
+      "type": "object"
+    },
+    "VariableType": {
+      "description": "The declared type of one template variable; rows are checked against it\nat substitution time, so a wrong-typed CSV cell fails before rendering.",
+      "oneOf": [
+        {
+          "const": "string",
+          "description": "Free text (names, titles).",
+          "type": "string"
+        },
+        {
+          "const": "number",
+          "description": "A number, rendered into string fields (\"score: {{score}}\").",
+          "type": "string"
+        },
+        {
+          "const": "color",
+          "description": "A #rrggbb color, filling color fields.",
+          "type": "string"
+        },
+        {
+          "const": "asset",
+          "description": "A media path, filling asset `src` (or id) fields.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1065,6 +1108,13 @@
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
+    },
+    "variables": {
+      "additionalProperties": {
+        "$ref": "#/$defs/VariableDef"
+      },
+      "description": "Typed template variables (plan §4 F12): declared once, filled per\n`render --data` row at render time.",
+      "type": "object"
     }
   },
   "required": [

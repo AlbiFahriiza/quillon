@@ -10,6 +10,7 @@ use crate::document::{
     ImageElement, RectElement, Scene, ShadowDef, Size, SourceRange, TextAlign, TextElement,
     VideoElement,
 };
+use crate::template::VariableDef;
 use crate::time::FLICKS_PER_SECOND;
 use std::collections::BTreeMap;
 
@@ -35,6 +36,7 @@ impl DocumentBuilder {
                 audio_rate: 48_000,
                 audio: Vec::new(),
                 captions: Vec::new(),
+                variables: BTreeMap::new(),
                 scenes: Vec::new(),
             },
         }
@@ -70,6 +72,12 @@ impl DocumentBuilder {
     /// (plan §12 v0.5).
     pub fn caption_track(mut self, track: CaptionTrack) -> Self {
         self.doc.captions.push(track);
+        self
+    }
+
+    /// Declare a typed template variable (plan §4 F12).
+    pub fn variable(mut self, name: &str, def: VariableDef) -> Self {
+        self.doc.variables.insert(name.to_string(), def);
         self
     }
 

@@ -4,6 +4,7 @@
 use crate::caption::CaptionTrack;
 use crate::color::Color;
 use crate::easing::Ease;
+use crate::template::VariableDef;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -520,6 +521,10 @@ pub struct Document {
     /// Cue timing is on the document timeline and may cross scenes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub captions: Vec<CaptionTrack>,
+    /// Typed template variables (plan §4 F12): declared once, filled per
+    /// `render --data` row at render time.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub variables: BTreeMap<String, VariableDef>,
     pub scenes: Vec<Scene>,
 }
 
@@ -573,6 +578,7 @@ mod tests {
             audio_rate: 48_000,
             audio: Vec::new(),
             captions: Vec::new(),
+            variables: BTreeMap::new(),
             scenes: vec![
                 Scene {
                     id: "a".into(),

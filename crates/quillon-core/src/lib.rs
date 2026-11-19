@@ -15,6 +15,7 @@ pub mod frame_source;
 pub mod lint;
 pub mod schema;
 pub mod subtitle;
+pub mod template;
 pub mod time;
 pub mod validate;
 
@@ -34,6 +35,7 @@ pub use subtitle::{
     RegularizeConfig, SubtitleError, ms_to_ticks, parse_srt, parse_vtt, regularize_cues,
     ticks_to_ms, to_srt, to_vtt,
 };
+pub use template::{TemplateError, VariableDef, VariableType, apply_template_json};
 pub use validate::{ValidationError, validate_document, validate_str};
 
 /// Document format version accepted by this build (plan §5, §14).
