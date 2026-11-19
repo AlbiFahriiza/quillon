@@ -15,14 +15,17 @@ use quillon_render::{RENDERER_VERSION, Renderer};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+mod bench;
+
 fn main() {
     let command = std::env::args().nth(1);
     let result = match command.as_deref() {
         Some("export-schema") => export_schema(),
         Some("golden") => golden(),
         Some("gallery") => gallery(),
+        Some("bench") => bench::run(),
         _ => {
-            eprintln!("usage: cargo xtask <export-schema|golden|gallery>");
+            eprintln!("usage: cargo xtask <export-schema|golden|gallery|bench>");
             std::process::exit(1);
         }
     };

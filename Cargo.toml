@@ -2,8 +2,19 @@
 resolver = "3"
 members = ["crates/*"]
 
+# Release targets (research/L; consumed by .github/workflows/release.yml
+# and installer.sh). cargo-dist-compatible naming.
+[workspace.metadata.dist]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
 [workspace.package]
-version = "0.4.0"
+version = "1.0.0-beta.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/AlbiFahriiza/quillon"
@@ -13,11 +24,11 @@ rust-version = "1.85"
 rsubs-lib = "0.4.0"
 ureq = "3.5.2"
 whisper-rs = "0.16.0"
-quillon-core = { path = "crates/quillon-core", version = "0.4.0" }
-quillon-render = { path = "crates/quillon-render", version = "0.4.0" }
-quillon-media = { path = "crates/quillon-media", version = "0.4.0" }
-quillon-cache = { path = "crates/quillon-cache", version = "0.4.0" }
-quillon-audio = { path = "crates/quillon-audio", version = "0.4.0" }
+quillon-core = { path = "crates/quillon-core", version = "1.0.0-beta.1" }
+quillon-render = { path = "crates/quillon-render", version = "1.0.0-beta.1" }
+quillon-media = { path = "crates/quillon-media", version = "1.0.0-beta.1" }
+quillon-cache = { path = "crates/quillon-cache", version = "1.0.0-beta.1" }
+quillon-audio = { path = "crates/quillon-audio", version = "1.0.0-beta.1" }
 
 # Versions verified against the crates.io API on 2026-11-18 (plan §16.4).
 serde = { version = "1.0.229", features = ["derive"] }
