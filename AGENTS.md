@@ -27,8 +27,10 @@ E2E coverage is `crates/quillon-cli/tests/mcp_e2e.rs`.
 ## Architecture rules (myquillonplan.md §3, §6)
 
 - One-way dependencies: `quillon-core` imports no internal crate; `render`,
-  `media` import only `core`; `cli` imports `core`, `render`, `media`. No
-  cycles. `arch_gate.py` enforces this.
+  `media`, `audio`, `cache` import only `core`; `cli` imports `core`,
+  `render`, `media`, `cache`, `audio`. No cycles. `arch_gate.py` enforces
+  this against `disciplined.yaml` (the `audio` layer entry is required —
+  it was missing once and the gate could not see the cli→audio edge).
 - `render_tick` is a pure function of `(document, tick)` — no inter-frame
   state, no wall clock, no randomness. Frame hashes are the determinism
   contract.
@@ -48,6 +50,23 @@ E2E coverage is `crates/quillon-cli/tests/mcp_e2e.rs`.
 
 `0` ok · `2` invalid document · `3` lint findings · `1` everything else. CLI
 usage errors exit `1`, not `2` — `2` is reserved for document validation.
+
+## Caption & audio surface (v0.5)
+
+Captions are document-level tracks (`captions` array next to `audio`), not
+scene elements: cue timing is document-global and may cross scenes; burn-in
+composites over the finished frame (after crossfades). Imports (SRT/VTT via
+`quillon-core`, ASS/SSA via rsubs-lib in the CLI) always pass through
+`regularize_cues` (own timing regularization — research/H: raw parser output
+is never burned) and are clamped to the document duration; `--no-regularize`
+keeps source timing exactly. The frame cache keys only the cues active at a
+frame's tick, so editing one cue invalidates only its frame range. Whisper
+transcription lives behind the default-off `transcribe` feature (whisper-rs +
+ureq; model weights download on first use, sha256-pinned) — plan §15 #7.
+`quillon audio analyze` measures each scene's LUFS/true peak (ebur128) and
+silence ranges. The acceptance tests are
+`quillon-audio/tests/transcribe_acceptance.rs` (deterministic click-track)
+and `tests/whisper_e2e.rs` (ignored; needs the model).
 
 ## Testing
 

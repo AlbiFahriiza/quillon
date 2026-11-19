@@ -11,6 +11,8 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 rsubs-lib = "0.4.0"
+ureq = "3.5.2"
+whisper-rs = "0.16.0"
 quillon-core = { path = "crates/quillon-core", version = "0.4.0" }
 quillon-render = { path = "crates/quillon-render", version = "0.4.0" }
 quillon-media = { path = "crates/quillon-media", version = "0.4.0" }

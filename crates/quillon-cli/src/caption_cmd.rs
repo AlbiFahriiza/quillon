@@ -33,7 +33,7 @@ pub fn import(
     let content = std::fs::read_to_string(subs)
         .map_err(|e| format!("cannot read {}: {e}", subs.display()))?;
     let timebase = doc.timebase;
-    let mut cues = match subs.extension().and_then(|e| e.to_str()) {
+    let cues = match subs.extension().and_then(|e| e.to_str()) {
         Some("srt") => parse_srt(&content, timebase).map_err(|e| e.to_string())?,
         Some("vtt") => parse_vtt(&content, timebase).map_err(|e| e.to_string())?,
         Some("ass") | Some("ssa") => parse_ass(&content, timebase)?,
@@ -43,8 +43,48 @@ pub fn import(
             ));
         }
     };
+    finish(doc, flags, cues, no_regularize)
+}
+
+/// Transcribe an audio file with whisper and attach the result as a
+/// caption track (plan §12 v0.5; only with the `transcribe` feature). The
+/// model is downloaded on first use when `--model` is absent.
+#[cfg(feature = "transcribe")]
+pub fn transcribe(
+    audio: &Path,
+    doc: &Document,
+    flags: &ImportFlags,
+    model: Option<&Path>,
+    threads: u32,
+    no_regularize: bool,
+) -> Result<Document, String> {
+    let decoded = quillon_audio::transcribe::decode_mono_16k(audio).map_err(|e| e.to_string())?;
+    let model_path = match model {
+        Some(path) => path.to_path_buf(),
+        None => quillon_audio::transcribe::default_model_path().ok_or_else(|| {
+            "cannot derive a cache dir for the whisper model; pass --model".to_string()
+        })?,
+    };
+    quillon_audio::transcribe::ensure_model(&model_path).map_err(|e| e.to_string())?;
+    let cues =
+        quillon_audio::transcribe::transcribe(&model_path, &decoded.samples, doc.timebase, threads)
+            .map_err(|e| e.to_string())?;
+    if cues.is_empty() {
+        return Err("whisper produced no transcribable segments in this audio".into());
+    }
+    finish(doc, flags, cues, no_regularize)
+}
+
+/// The shared tail of every caption source: optional regularization, the
+/// clamp into the document, style resolution, and track attachment.
+fn finish(
+    doc: &Document,
+    flags: &ImportFlags,
+    mut cues: Vec<CaptionCue>,
+    no_regularize: bool,
+) -> Result<Document, String> {
     if !no_regularize {
-        cues = regularize_cues(&cues, &RegularizeConfig::default(), timebase);
+        cues = regularize_cues(&cues, &RegularizeConfig::default(), doc.timebase);
     }
     // Cue windows live inside the document: clamp the tail (SRT files
     // routinely trail the video), drop what no longer fits.

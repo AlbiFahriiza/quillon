@@ -34,3 +34,17 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  # The optional transcribe feature pulls whisper.cpp (cmake + C++) and
+  # libclang (bindgen). Default builds stay pure Rust; this Linux-only job
+  # keeps the feature compiling (plan §15 #7: transcription stays optional).
+  transcribe-feature:
+    name: transcribe feature (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install libclang (bindgen)
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+      - run: cargo check -p quillon-cli --features transcribe

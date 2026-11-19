@@ -139,6 +139,43 @@ enum CaptionAction {
         #[arg(long)]
         format: Option<String>,
     },
+    /// Transcribe an audio file with whisper into a caption track
+    /// (only built with the `transcribe` feature).
+    #[cfg(feature = "transcribe")]
+    Transcribe {
+        audio: PathBuf,
+        /// The document to attach the track to.
+        #[arg(long)]
+        doc: PathBuf,
+        /// Write the captioned document here (default: stdout).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Whisper ggml model path (default: the pinned tiny.en in the
+        /// cache, downloaded on first use).
+        #[arg(long)]
+        model: Option<PathBuf>,
+        /// Transcription threads (default 4).
+        #[arg(long, default_value_t = 4)]
+        threads: u32,
+        /// Font asset id for the track (default: the document's first font).
+        #[arg(long)]
+        font: Option<String>,
+        /// Font size in pixels.
+        #[arg(long, default_value_t = 24.0)]
+        size: f32,
+        /// Gap to the canvas edge in pixels.
+        #[arg(long, default_value_t = 48)]
+        margin: i64,
+        /// bottom, center or top.
+        #[arg(long, default_value = "bottom")]
+        position: String,
+        /// Backing box color, e.g. #101418.
+        #[arg(long)]
+        bg: Option<String>,
+        /// Keep whisper's timing exactly; skip regularization.
+        #[arg(long)]
+        no_regularize: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -216,6 +253,34 @@ fn main() {
                 track,
                 format,
             } => caption_export(&doc, out, track, format),
+            #[cfg(feature = "transcribe")]
+            CaptionAction::Transcribe {
+                audio,
+                doc,
+                out,
+                model,
+                threads,
+                font,
+                size,
+                margin,
+                position,
+                bg,
+                no_regularize,
+            } => caption_transcribe(
+                &audio,
+                &doc,
+                out,
+                model.as_deref(),
+                threads,
+                &quillon_cli::caption_cmd::ImportFlags {
+                    font,
+                    size,
+                    margin,
+                    position,
+                    bg,
+                },
+                no_regularize,
+            ),
         },
         Command::Audio { action } => match action {
             AudioAction::Analyze {
@@ -514,6 +579,45 @@ fn caption_import(
                 }
                 eprintln!(
                     "the captioned document would be invalid; fix the flags or the subtitle file"
+                );
+                return 2;
+            }
+            write_document(&captioned, out)
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+/// `quillon caption transcribe` — whisper through the same attach tail as
+/// import, so regularized cues and validation are identical (feature
+/// `transcribe` only).
+#[cfg(feature = "transcribe")]
+fn caption_transcribe(
+    audio: &Path,
+    doc_path: &Path,
+    out: Option<PathBuf>,
+    model: Option<&Path>,
+    threads: u32,
+    flags: &quillon_cli::caption_cmd::ImportFlags,
+    no_regularize: bool,
+) -> i32 {
+    let doc = match read_document(doc_path) {
+        Ok(doc) => doc,
+        Err(code) => return code,
+    };
+    match quillon_cli::caption_cmd::transcribe(audio, &doc, flags, model, threads, no_regularize) {
+        Ok(captioned) => {
+            let base = doc_path.parent().unwrap_or(Path::new("."));
+            let errors = quillon_core::validate_document(&captioned, base);
+            if !errors.is_empty() {
+                for error in &errors {
+                    eprintln!("{error}");
+                }
+                eprintln!(
+                    "the captioned document would be invalid; fix the flags or the audio file"
                 );
                 return 2;
             }

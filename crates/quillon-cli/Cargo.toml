@@ -11,6 +11,11 @@ rust-version.workspace = true
 name = "quillon"
 path = "src/main.rs"
 
+[features]
+# Forwarded: `cargo build --features transcribe` enables `quillon caption
+# transcribe` (whisper.cpp is a C build; default builds exclude it).
+transcribe = ["quillon-audio/transcribe"]
+
 [dependencies]
 quillon-core = { workspace = true }
 quillon-render = { workspace = true }

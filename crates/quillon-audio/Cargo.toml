@@ -5,9 +5,18 @@ edition = "2024"
 description = "Audio pipeline for Quillon: symphonia decode, rubato resample, tick-domain mixing, EBU R128 loudness (plan §12 v0.3)."
 license = "MIT OR Apache-2.0"
 
+[features]
+# Transcription through whisper-rs (plan §15 #7: optional, never a
+# mandatory dependency). Adds a cmake/C++ build; default builds stay pure.
+transcribe = ["dep:whisper-rs", "dep:ureq", "dep:sha2"]
+
 [dependencies]
 quillon-core = { path = "../quillon-core" }
 symphonia = { workspace = true }
 rubato = { workspace = true }
 ebur128 = { workspace = true }
 thiserror = { workspace = true }
+
+sha2 = { workspace = true, optional = true }
+whisper-rs = { workspace = true, optional = true }
+ureq = { workspace = true, optional = true }

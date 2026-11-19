@@ -12,7 +12,8 @@ with the user's FFmpeg build. Optional in-process libav builds are a local
 build option chosen by the user, not an artifact distributed by this project.
 
 Direct dependencies (license strings verified against the crates.io API on
-2026-11-18; rmcp and base64 re-verified on 2026-11-19):
+2026-11-18; rmcp and base64 re-verified on 2026-11-19; rsubs-lib, ureq and
+whisper-rs verified on 2026-11-19):
 
   serde 1.0.229            MIT OR Apache-2.0
   serde_json 1.0.154       MIT OR Apache-2.0
@@ -34,7 +35,19 @@ Direct dependencies (license strings verified against the crates.io API on
   ebur128 0.1.11           MIT
   rmcp 3.11.0              Apache-2.0
   base64 0.23.1            MIT OR Apache-2.0
+  rsubs-lib 0.4.0          MIT
+  ureq 3.5.2 (optional)    MIT OR Apache-2.0
+  whisper-rs 0.16.0 (optional, feature `transcribe`)
+                           Unlicense (the crate); it builds whisper.cpp,
+                           which is MIT — https://github.com/ggml-org/whisper.cpp
+
+The optional `transcribe` feature downloads whisper.cpp's ggml tiny.en model
+weights on first use (https://huggingface.co/ggerganov/whisper.cpp); the
+download is sha256-pinned in the source and no weights are bundled with any
+Quillon artifact.
 
 Test fixtures: DejaVu Sans (test fonts) is used under its free license
 (Bitstream Vera / Public Domain dual licensing); see
-https://dejavu-fonts.github.io/
+https://dejavu-fonts.github.io/. The `speech.wav` fixture in
+`quillon-audio/tests/fixtures` was generated with a TTS service for the
+whisper end-to-end test.

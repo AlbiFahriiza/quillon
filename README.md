@@ -49,11 +49,30 @@ quillon preview <doc.json> [--port N]
 quillon probe <media-file> [--json]
 quillon inspect <doc.json> [--json]
 quillon mcp [--root <dir>]
+quillon caption import <subs.srt|subs.vtt|subs.ass> --doc <doc.json> [-o out.json]
+                 [--font <id>] [--size N] [--margin N]
+                 [--position bottom|center|top] [--bg #rrggbb] [--no-regularize]
+quillon caption export <doc.json> [-o out.srt] [--track N] [--format srt|vtt]
+quillon audio analyze <doc.json> [--json] [--silence-db N] [--min-silence-ms N]
 ```
 
 Exit codes: `0` success · `2` invalid document (errors carry JSON pointers) ·
 `3` valid but lint findings (suppress with `--allow-lint`) · `1` other errors.
 All subcommands accept `--json` for machine-readable output.
+
+Caption tracks (v0.5) are document-level: cues carry document-timeline ticks
+that may cross scene boundaries and burn in over the composited frame with a
+per-track style (font, size, position, margin, optional shadow and backing
+box). Imports always pass through timing regularization (min/max duration,
+reading speed, merge of tiny gaps — configurable, never raw). Whisper
+transcription is an optional feature build:
+
+```
+cargo build --features transcribe    # adds `quillon caption transcribe`
+```
+
+The model (whisper.cpp's tiny.en, sha256-pinned) downloads into the user
+cache on first use; default builds pull no C toolchain.
 
 ## Agent surface (MCP)
 

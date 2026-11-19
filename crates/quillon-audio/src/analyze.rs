@@ -81,6 +81,50 @@ pub fn silence_ranges(
     ranges
 }
 
+/// Percussive onsets as (from, to) tick pairs: a cue starts at each
+/// quiet-to-loud transition above `threshold` and runs until the next
+/// onset or `max_duration`, whichever comes first. A burst's own
+/// oscillation crosses the threshold many times per cycle, so a new onset
+/// requires at least 30 ms of quiet since the last loud frame. This is
+/// the deterministic, dependency-free transcript source the acceptance
+/// test for timing regularization uses (plan §12 v0.5 #2, synthetic
+/// click-track), and a cheap speech-activity marker in its own right.
+pub fn onset_cues(
+    samples: &[f32],
+    channels: u16,
+    rate: u32,
+    timebase: i64,
+    threshold: f32,
+    max_duration: i64,
+) -> Vec<(i64, i64)> {
+    let ch = channels.max(1) as usize;
+    let frames = samples.len() / ch;
+    let frame_tick = |frame: usize| -> i64 { frame as i64 * timebase / i64::from(rate) };
+    let loud =
+        |frame: usize| -> bool { (0..ch).any(|c| samples[frame * ch + c].abs() > threshold) };
+    // The refractory window in frames: 30 ms of quiet between onsets.
+    let quiet_frames = (i64::from(rate) * 30 / 1000).max(1) as usize;
+
+    let mut onsets: Vec<i64> = Vec::new();
+    let mut last_loud: Option<usize> = None;
+    for frame in 0..frames {
+        if !loud(frame) {
+            continue;
+        }
+        let is_new_onset = last_loud.is_none_or(|last| frame - last > quiet_frames);
+        if is_new_onset {
+            onsets.push(frame_tick(frame));
+        }
+        last_loud = Some(frame);
+    }
+    let mut cues = Vec::with_capacity(onsets.len());
+    for (i, &from) in onsets.iter().enumerate() {
+        let end = onsets.get(i + 1).copied().unwrap_or(from + max_duration);
+        cues.push((from, end.min(from + max_duration)));
+    }
+    cues
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +202,40 @@ mod tests {
                 (offset + 3 * TB / 4, offset + TB),
             ]
         );
+    }
+
+    /// Three 50ms bursts at 0.0s, 1.5s and 3.0s — a click-track.
+    fn click_track() -> Vec<f32> {
+        let mut samples = vec![0.0f32; RATE as usize * 4 * 2];
+        for start in [0usize, 72000, 144000] {
+            for f in 0..2400 {
+                let t = f as f64 / RATE as f64;
+                let v = (2.0 * std::f64::consts::PI * 880.0 * t).cos() as f32 * 0.6;
+                samples[(start + f) * 2] = v;
+                samples[(start + f) * 2 + 1] = v;
+            }
+        }
+        samples
+    }
+
+    #[test]
+    fn onset_cues_mark_each_burst() {
+        let samples = click_track();
+        // Three bursts at 0.0s, 1.5s and 3.0s; each cue runs to the next
+        // onset (1.5s apart) or max_duration (2s), whichever comes first —
+        // the last burst has no successor, so it runs the full 2s.
+        let cues = onset_cues(&samples, MIX_CHANNELS, RATE, TB, 0.3, 2 * TB);
+        assert_eq!(
+            cues,
+            vec![(0, 3 * TB / 2), (3 * TB / 2, 3 * TB), (3 * TB, 5 * TB)]
+        );
+    }
+
+    #[test]
+    fn onset_cues_cap_the_last_cue_at_max_duration() {
+        let samples = click_track();
+        let cues = onset_cues(&samples, MIX_CHANNELS, RATE, TB, 0.3, TB);
+        let last = cues.last().copied().unwrap();
+        assert_eq!(last.1 - last.0, TB, "capped at max_duration: {cues:?}");
     }
 }

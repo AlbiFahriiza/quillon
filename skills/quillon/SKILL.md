@@ -72,6 +72,30 @@ with `source_range` in ticks; audio tracks mix with `gain` and
 schema is the `quillon://schema/document` resource — trust it, not
 your memory of this file.
 
+## Captions (v0.5)
+
+Caption tracks live at the document level (`"captions": [{ "style":
+{...}, "cues": [...] }]`, next to `"audio"`): cue timing is
+document-global ticks and may cross scenes; cues burn in over the
+finished frame with the track's style (font, size, `position` bottom/
+center/top, `margin`, optional `shadow` and `bg` box). Fastest path
+from existing subtitles — the CLI regularizes timing (min 1 s, max
+6 s, ≤18 chars/s, tiny-gap merge; `--no-regularize` keeps source
+timing exactly) and clamps cues to the document duration:
+
+```
+quillon caption import subs.srt --doc video.json -o video.cap.json
+quillon caption import subs.vtt --doc video.json   # .ass/.ssa too
+quillon caption export video.cap.json --format srt
+```
+
+Then validate + render as usual. `quillon audio analyze video.json
+--json` reports per-scene integrated LUFS, true peak (dBTP) and
+silence ranges of the mix. Whisper transcription
+(`quillon caption transcribe audio.wav --doc video.json`) exists only
+in `--features transcribe` builds; model weights download on first
+use.
+
 ## Errors
 
 Every tool error names the step that failed and, for document

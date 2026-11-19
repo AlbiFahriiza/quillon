@@ -11,7 +11,10 @@ use std::path::Path;
 
 pub mod analyze;
 
-pub use analyze::{SegmentLoudness, analyze_segment, silence_ranges};
+#[cfg(feature = "transcribe")]
+pub mod transcribe;
+
+pub use analyze::{SegmentLoudness, analyze_segment, onset_cues, silence_ranges};
 
 /// The fixed channel layout of the mix: stereo. Mono sources are copied to
 /// both channels; wider sources contribute their first two channels.
@@ -27,6 +30,8 @@ pub enum AudioError {
     Loudness(String),
     #[error("audio i/o failed: {0}")]
     Io(String),
+    #[error("transcription failed: {0}")]
+    Transcribe(String),
 }
 
 /// Decoded audio: interleaved f32 samples in [-1, 1].
