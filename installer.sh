@@ -40,10 +40,12 @@ fi
 
 command -v sha256sum >/dev/null 2>&1 || fail "need sha256sum (coreutils)"
 
-# --- find the latest release tag ------------------------------------------
-tag=$(fetch "https://api.github.com/repos/${REPO}/releases/latest" - \
+# --- resolve the newest release tag ---------------------------------------
+# /releases/latest never returns prereleases, so list and take the
+# first (newest) release instead — beta builds install the same way.
+tag=$(fetch "https://api.github.com/repos/${REPO}/releases?per_page=1" - \
     | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)
-[ -n "$tag" ] || fail "cannot resolve the latest release"
+[ -n "$tag" ] || fail "cannot resolve the newest release"
 
 base="https://github.com/${REPO}/releases/download/${tag}"
 archive="quillon-${target}.tar.gz"
