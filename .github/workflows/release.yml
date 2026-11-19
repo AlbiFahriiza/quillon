@@ -23,8 +23,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, archive: tar.gz }
-          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest, archive: tar.gz }
+          # Linux builds pin ubuntu-22.04 (glibc 2.35) so the binaries
+          # run on older distributions; ubuntu-latest (glibc 2.43)
+          # breaks every older glibc host.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, archive: tar.gz }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04, archive: tar.gz }
           - { target: x86_64-apple-darwin, os: macos-latest, archive: tar.gz }
           - { target: aarch64-apple-darwin, os: macos-latest, archive: tar.gz }
           - { target: x86_64-pc-windows-msvc, os: windows-latest, archive: zip }
