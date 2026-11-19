@@ -1,17 +1,13 @@
-//! Quillon CLI (plan §4 F10): `validate` and `render`, machine-readable via
-//! `--json`, semantic exit codes:
+//! Quillon CLI (plan §4 F10): `validate`, `render`, `preview`, `probe`,
+//! `inspect` and `mcp`, machine-readable via `--json`, semantic exit codes:
 //!   0 success · 1 operational error · 2 invalid document · 3 lint findings.
 //! Usage errors exit 1 (clap's default 2 is reserved for document problems).
 
-use clap::{Parser, Subcommand, ValueEnum};
-use quillon_core::frame_source::{FrameSource, NullFrameSource};
+use clap::{Parser, Subcommand};
+use quillon_cli::render_doc::Format;
 use quillon_core::{Document, lint_document, validate_str};
-use quillon_media::DocumentFrameSource;
-use quillon_media::Mp4Sink;
-use quillon_render::{RENDERER_VERSION, render_document_parallel};
 use serde_json::json;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(
@@ -81,12 +77,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-}
-
-#[derive(Clone, Copy, PartialEq, ValueEnum)]
-enum Format {
-    Png,
-    Mp4,
+    /// Run the MCP agent server over stdio (plan §8).
+    Mcp {
+        /// Working root for documents, assets and outputs
+        /// (default: current directory).
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -116,6 +113,7 @@ fn main() {
             json,
         } => render(&doc, &out, format, workers, cache_dir, lufs, json),
         Command::Preview { doc, port } => preview(&doc, port),
+        Command::Mcp { root } => quillon_cli::mcp::run(root),
     };
     std::process::exit(code);
 }
@@ -329,10 +327,6 @@ fn validate(path: &Path, json: bool, allow_lint: bool) -> i32 {
     0
 }
 
-/// In-memory cache layer budget; the disk layer is bounded by the caller's
-/// directory. 128 MiB is roughly sixteen 1080p frames.
-const CACHE_MEMORY_BYTES: usize = 128 << 20;
-
 fn render(
     path: &Path,
     out: &Path,
@@ -347,264 +341,41 @@ fn render(
         Err(code) => return code,
     };
     let base = path.parent().unwrap_or(Path::new("."));
-    let workers = workers.unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1)
-    });
-
-    // The document's video assets, decoded on demand (plan §6.3); documents
-    // without video render against the null source.
-    let src: Arc<dyn FrameSource> = match DocumentFrameSource::open(&doc, base) {
-        Ok(source) if !source.is_empty() => Arc::new(source),
-        _ => Arc::new(NullFrameSource),
-    };
-
-    // Opt-in cache: content-addressed frames keyed by document subtree,
-    // renderer version, asset hashes and tick (research/G).
-    let cache = match cache_dir {
-        Some(dir) => match quillon_cache::FrameCache::open(&dir, CACHE_MEMORY_BYTES) {
-            Ok(cache) => Some(cache),
-            Err(err) => {
-                eprintln!("cannot open the cache directory {}: {err}", dir.display());
-                return 1;
+    match quillon_cli::render_doc::render_document(
+        &doc,
+        base,
+        out,
+        format,
+        workers,
+        cache_dir.as_deref(),
+        lufs,
+    ) {
+        Ok(outcome) => {
+            if !doc.audio.is_empty() && format == Format::Png {
+                eprintln!(
+                    "note: the document has audio tracks; PNG output skips them (render MP4 to hear them)"
+                );
             }
-        },
-        None => None,
-    };
-    let keys = match &cache {
-        Some(_) => match quillon_cache::SessionKeys::new(&doc, base, RENDERER_VERSION, 0) {
-            Ok(keys) => Some(Arc::new(keys)),
-            Err(err) => {
-                eprintln!("cannot hash the document assets: {err}");
-                return 1;
+            if json {
+                let body = json!({
+                    "output": outcome.output,
+                    "manifest": outcome.manifest_path,
+                    "frames": outcome.frames,
+                });
+                println!("{body}");
+            } else {
+                println!(
+                    "rendered {} frames -> {}",
+                    outcome.frames,
+                    outcome.output.display()
+                );
+                println!("frame manifest: {}", outcome.manifest_path.display());
             }
-        },
-        None => None,
-    };
-    let (cache_get, cache_put) = match (&cache, &keys) {
-        (Some(cache), Some(keys)) => {
-            // Each hook owns its Arc clones; `doc` travels with them so the
-            // closures can outlive this stack frame ('static).
-            let shared_doc = Arc::new(doc.clone());
-            let get: quillon_render::CacheGet = {
-                let cache = cache.clone();
-                let keys = Arc::clone(keys);
-                let doc = Arc::clone(&shared_doc);
-                Arc::new(move |scene_idx, local| cache.get(&keys.frame_key(&doc, scene_idx, local)))
-            };
-            let put: quillon_render::CachePut = {
-                let cache = cache.clone();
-                let keys = Arc::clone(keys);
-                let doc = Arc::clone(&shared_doc);
-                Arc::new(move |scene_idx, local, frame| {
-                    // A failed cache write costs a re-render, nothing more.
-                    let _ = cache.put(keys.frame_key(&doc, scene_idx, local), frame.clone());
-                })
-            };
-            (Some(get), Some(put))
+            0
         }
-        _ => (None, None),
-    };
-
-    let rx =
-        match render_document_parallel(&doc, base, workers, Arc::clone(&src), cache_get, cache_put)
-        {
-            Ok(rx) => rx,
-            Err(err) => {
-                eprintln!("cannot prepare the render: {err}");
-                return 1;
-            }
-        };
-
-    // Stream frames to the output as they arrive: peak memory is the
-    // pipeline chunk plus the channel, never the whole video (research/R).
-    let mut sink = match format {
-        Format::Mp4 => match Mp4Sink::new(out, doc.size.w, doc.size.h, doc.fps) {
-            Ok(sink) => Some(sink),
-            Err(err) => {
-                eprintln!("cannot start the encoder: {err}");
-                return 1;
-            }
-        },
-        Format::Png => {
-            if let Err(err) = std::fs::create_dir_all(out) {
-                eprintln!("cannot create {}: {err}", out.display());
-                return 1;
-            }
-            None
-        }
-    };
-    let mut hashes = Vec::new();
-    let mut frames = 0u64;
-    for job in rx {
-        let job = match job {
-            Ok(job) => job,
-            Err(err) => {
-                eprintln!("render failed at frame {frames}: {err}");
-                return 1;
-            }
-        };
-        let write = match &mut sink {
-            Some(sink) => sink.write_frame(&job.frame).map_err(|e| e.to_string()),
-            None => save_png(&job.frame, &out.join(format!("frame_{frames:06}.png")))
-                .map_err(|e| e.to_string()),
-        };
-        if let Err(err) = write {
-            eprintln!("writing the output stopped: {err}");
-            return 1;
-        }
-        hashes.push(quillon_render_frame_hash(&job.frame));
-        frames += 1;
-    }
-    if let Some(sink) = sink {
-        if let Err(err) = sink.finish() {
-            eprintln!("encoding failed: {err}");
-            return 1;
-        }
-    }
-    let manifest_path = match format {
-        Format::Mp4 => manifest_path_for(out),
-        Format::Png => out.join("manifest.json"),
-    };
-    if let Err(err) = write_manifest(doc.size.w, doc.size.h, &manifest_path, &hashes) {
-        eprintln!("cannot write {}: {err}", manifest_path.display());
-        return 1;
-    }
-
-    if let Some(cache) = &cache {
-        let (hits, misses) = cache.stats();
-        eprintln!("cache: {hits} hit(s), {misses} miss(es)");
-    }
-
-    // Audio: mix the document's tracks, optionally normalize loudness, and
-    // mux them into the MP4 (video stream copied, audio AAC-encoded once).
-    let has_audio = !doc.audio.is_empty();
-    if has_audio && format == Format::Mp4 {
-        if let Err(code) = mux_document_audio(&doc, base, out, lufs) {
-            return code;
-        }
-    } else if has_audio {
-        eprintln!(
-            "note: the document has audio tracks; PNG output skips them (render MP4 to hear them)"
-        );
-    }
-
-    if json {
-        let body = json!({
-            "output": out,
-            "manifest": manifest_path,
-            "frames": frames,
-        });
-        println!("{body}");
-    } else {
-        println!("rendered {frames} frames -> {}", out.display());
-        println!("frame manifest: {}", manifest_path.display());
-    }
-    0
-}
-
-fn save_png(frame: &quillon_core::Frame, path: &Path) -> Result<(), image::ImageError> {
-    image::save_buffer(
-        path,
-        &frame.rgba,
-        frame.width,
-        frame.height,
-        image::ExtendedColorType::Rgba8,
-    )
-}
-
-fn manifest_path_for(out: &Path) -> PathBuf {
-    let mut name = out.file_name().unwrap_or_default().to_os_string();
-    name.push(".manifest.json");
-    out.with_file_name(name)
-}
-
-fn write_manifest(width: u32, height: u32, path: &Path, hashes: &[String]) -> std::io::Result<()> {
-    let body = json!({
-        "renderer_version": RENDERER_VERSION,
-        "width": width,
-        "height": height,
-        "frame_count": hashes.len(),
-        "frames": hashes,
-    });
-    std::fs::write(path, serde_json::to_string_pretty(&body)? + "\n")
-}
-
-fn quillon_render_frame_hash(frame: &quillon_core::Frame) -> String {
-    use sha2::{Digest, Sha256};
-    let digest = Sha256::digest(&frame.rgba);
-    digest.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Mix, normalize, and mux the document's audio into the rendered MP4.
-/// The video stream is stream-copied (no re-encode); audio becomes AAC.
-fn mux_document_audio(
-    doc: &Document,
-    base: &Path,
-    out: &Path,
-    lufs: Option<f64>,
-) -> Result<(), i32> {
-    let mut mix = match quillon_audio::mix_document_decoding(doc, base) {
-        Ok(mix) => mix,
         Err(err) => {
-            eprintln!("cannot mix the document audio: {err}");
-            return Err(1);
-        }
-    };
-    if let Some(target) = lufs {
-        match quillon_audio::normalize_lufs(&mut mix.samples, mix.rate, target) {
-            Ok(before) if before.is_finite() => {
-                eprintln!("audio: {before:.1} LUFS -> {target:.1} LUFS")
-            }
-            Ok(_) => eprintln!("audio: silence, nothing to normalize"),
-            Err(err) => {
-                eprintln!("cannot normalize loudness: {err}");
-                return Err(1);
-            }
+            eprintln!("{err}");
+            1
         }
     }
-    let temp_dir = std::env::temp_dir().join(format!("quillon-mux-{}", std::process::id()));
-    if let Err(err) = std::fs::create_dir_all(&temp_dir) {
-        eprintln!("cannot create a temp dir for muxing: {err}");
-        return Err(1);
-    }
-    let wav = temp_dir.join("audio.wav");
-    let video_tmp = temp_dir.join("video.mp4");
-    if let Err(err) = quillon_audio::write_wav(&wav, &mix.samples, mix.channels, mix.rate) {
-        eprintln!("cannot write the mixed audio: {err}");
-        return Err(1);
-    }
-    if let Err(err) = std::fs::rename(out, &video_tmp) {
-        eprintln!("cannot stage the rendered video for muxing: {err}");
-        return Err(1);
-    }
-    let mut command = ffmpeg_sidecar::command::FfmpegCommand::new();
-    command
-        .args(["-hide_banner", "-loglevel", "error"])
-        .input(video_tmp.to_string_lossy().as_ref())
-        .input(wav.to_string_lossy().as_ref())
-        .args(["-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest"])
-        .overwrite()
-        .output(out.to_string_lossy().as_ref());
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(err) => {
-            eprintln!("cannot start ffmpeg to mux audio: {err}");
-            return Err(1);
-        }
-    };
-    let status = match child.wait() {
-        Ok(status) => status,
-        Err(err) => {
-            eprintln!("waiting for the muxer failed: {err}");
-            return Err(1);
-        }
-    };
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    if !status.success() {
-        eprintln!("audio muxing failed (ffmpeg exit {status})");
-        return Err(1);
-    }
-    Ok(())
 }

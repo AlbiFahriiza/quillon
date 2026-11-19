@@ -35,6 +35,11 @@ sha2 = "0.11.1"
 symphonia = { version = "0.6.1", features = ["mp3", "flac", "isomp4", "aac"] }
 rubato = "5.1.0"
 ebur128 = "0.1.11"
+# MCP SDK (official, modelcontextprotocol org) — verified against the
+# crates.io API on 2026-11-19; stdio server only (research/I §2).
+rmcp = { version = "3.11", features = ["server", "transport-io"] }
+# PNG frames travel as base64 inside MCP image content blocks.
+base64 = "0.23.1"
 
 # Debug builds without debuginfo: keeps target/ small on constrained disks
 # (5.9 GB vs ~1.5 GB measured with full debuginfo) and speeds CI.
