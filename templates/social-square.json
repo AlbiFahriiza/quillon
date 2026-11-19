@@ -1,0 +1,45 @@
+{
+  "v": 1,
+  "size": { "w": 1080, "h": 1080 },
+  "fps": 30,
+  "bg": "#f6f3ee",
+  "assets": {
+    "body": { "type": "font", "src": "assets/DejaVuSans-ascii.ttf" }
+  },
+  "scenes": [
+    {
+      "id": "square",
+      "duration": 2116800000,
+      "elements": [
+        {
+          "type": "rect", "x": 90, "y": 90, "w": 900, "h": 900, "color": "#e8590c",
+          "radius": 64,
+          "anim": {
+            "opacity": { "keys": [ { "t": 0, "v": 0.0, "ease": "out_cubic" }, { "t": 352800000, "v": 1.0 } ] },
+            "translate_y": { "keys": [ { "t": 0, "v": -60.0, "ease": "out_back" }, { "t": 529200000, "v": 0.0 } ] }
+          }
+        },
+        {
+          "type": "rect", "x": 210, "y": 210, "w": 300, "h": 300, "color": "#1f2937",
+          "radius": 48,
+          "anim": {
+            "opacity": { "keys": [ { "t": 176400000, "v": 0.0, "ease": "out_cubic" }, { "t": 705600000, "v": 1.0 } ] }
+          }
+        },
+        {
+          "type": "rect", "x": 570, "y": 210, "w": 300, "h": 300, "color": "#495057",
+          "radius": 150,
+          "anim": {
+            "opacity": { "keys": [ { "t": 294000000, "v": 0.0, "ease": "out_cubic" }, { "t": 882000000, "v": 1.0 } ] }
+          }
+        },
+        {
+          "type": "text", "text": "1080 x 1080", "font": "body", "x": 540, "y": 810, "size": 72.0, "color": "#f8f9fa",
+          "anim": {
+            "opacity": { "keys": [ { "t": 411600000, "v": 0.0, "ease": "out_cubic" }, { "t": 999600000, "v": 1.0 } ] }
+          }
+        }
+      ]
+    }
+  ]
+}

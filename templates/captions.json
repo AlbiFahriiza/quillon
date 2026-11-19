@@ -1,0 +1,46 @@
+{
+  "v": 1,
+  "size": { "w": 1280, "h": 720 },
+  "fps": 30,
+  "bg": "#101418",
+  "assets": {
+    "body": { "type": "font", "src": "assets/DejaVuSans-ascii.ttf" }
+  },
+  "captions": [
+    {
+      "style": {
+        "font": "body",
+        "size": 42,
+        "color": "#ffffff",
+        "position": "bottom",
+        "margin": 90
+      },
+      "cues": [
+        { "from": 0, "to": 705600000, "text": "This is Quillon:" },
+        { "from": 705600000, "to": 1411200000, "text": "one JSON document in," },
+        { "from": 1411200000, "to": 2116800000, "text": "a rendered video out." }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "id": "talk",
+      "duration": 2116800000,
+      "elements": [
+        {
+          "type": "rect", "x": 0, "y": 0, "w": 1280, "h": 720,
+          "gradient": {
+            "angle": 120,
+            "stops": [
+              { "at": 0.0, "color": "#1b2432" },
+              { "at": 1.0, "color": "#0d1117" }
+            ]
+          }
+        },
+        {
+          "type": "rect", "x": 96, "y": 96, "w": 1088, "h": 4, "color": "#3d5a80", "radius": 2
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "v": 1,
+  "size": { "w": 1280, "h": 720 },
+  "fps": 30,
+  "bg": "#141821",
+  "assets": {
+    "body": { "type": "font", "src": "assets/DejaVuSans-ascii.ttf" }
+  },
+  "scenes": [
+    {
+      "id": "lower-third",
+      "duration": 2116800000,
+      "elements": [
+        {
+          "type": "rect", "x": -80, "y": 520, "w": 720, "h": 120, "color": "#182234",
+          "radius": 14,
+          "shadow": { "blur": 24, "color": "#000000", "alpha": 0.5, "offset_x": 0, "offset_y": 8 },
+          "anim": {
+            "translate_x": { "keys": [ { "t": 0, "v": -760.0, "ease": "out_cubic" }, { "t": 352800000, "v": 0.0 } ] }
+          }
+        },
+        {
+          "type": "rect", "x": -80, "y": 520, "w": 10, "h": 120, "color": "#7aa2f7"
+        },
+        {
+          "type": "text", "text": "Ada Lovelace", "font": "body", "x": 60, "y": 560, "size": 44.0, "color": "#f0f4ff",
+          "anim": {
+            "translate_x": { "keys": [ { "t": 117600000, "v": -640.0, "ease": "out_cubic" }, { "t": 529200000, "v": 0.0 } ] }
+          }
+        },
+        {
+          "type": "text", "text": "Analyst Engine, first programmer", "font": "body", "x": 60, "y": 608, "size": 26.0, "color": "#8fa6c9",
+          "anim": {
+            "opacity": { "keys": [ { "t": 176400000, "v": 0.0, "ease": "out_cubic" }, { "t": 529200000, "v": 1.0 } ] }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 //!
 //!   cargo xtask export-schema   # regenerate docs/schema.json
 //!   cargo xtask golden          # regenerate testdata/golden/hashes.json
+//!   cargo xtask gallery         # regenerate docs/gallery-assets/*.png
 //!
 //! Golden regeneration is a deliberate act: the result belongs in a commit
 //! that contains nothing else and states why pixels shifted (plan §14).
@@ -19,8 +20,9 @@ fn main() {
     let result = match command.as_deref() {
         Some("export-schema") => export_schema(),
         Some("golden") => golden(),
+        Some("gallery") => gallery(),
         _ => {
-            eprintln!("usage: cargo xtask <export-schema|golden>");
+            eprintln!("usage: cargo xtask <export-schema|golden|gallery>");
             std::process::exit(1);
         }
     };
@@ -88,6 +90,46 @@ fn load_doc(path: &Path, base: &Path) -> Result<Document> {
     let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
     validate_str(&text, base)
         .map_err(|errors| anyhow::anyhow!("corpus doc {} is invalid: {errors:?}", path.display()))
+}
+
+/// Regenerate the gallery images: one mid-animation frame per template in
+/// `templates/`, rendered through the same Renderer the real render path
+/// uses, saved to `docs/gallery-assets/<name>.png`. What you see in
+/// `docs/gallery.md` is exactly what this produces from the committed
+/// documents — never a hand-edited picture.
+fn gallery() -> Result<()> {
+    let templates_dir = repo_root().join("templates");
+    let out_dir = repo_root().join("docs/gallery-assets");
+    std::fs::create_dir_all(&out_dir)?;
+
+    let mut templates: Vec<PathBuf> = std::fs::read_dir(&templates_dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    templates.sort();
+    if templates.is_empty() {
+        bail!("no templates in {}", templates_dir.display());
+    }
+
+    for path in &templates {
+        let name = path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .context("template file name is not UTF-8")?
+            .to_string();
+        // Assets are relative to the templates directory.
+        let doc = load_doc(path, &templates_dir)?;
+        let renderer = Renderer::new(&doc, &templates_dir)?;
+        let frames = doc.frame_count();
+        // The mid frame: animations have started, nothing has ended yet.
+        let mid = frames / 2;
+        let tick = (mid as i64) * frame_tick(doc.fps);
+        let frame = renderer.render_tick(tick, &NullFrameSource)?;
+        let out = out_dir.join(format!("{name}.png"));
+        quillon_cli::render_doc::save_png(&frame, &out)?;
+        println!("{name}: frame {mid}/{} -> {}", frames, out.display());
+    }
+    Ok(())
 }
 
 fn render_hashes(doc: &Document, base: &Path) -> Result<Vec<String>> {
