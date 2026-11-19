@@ -7,6 +7,7 @@ pub mod audio_cmd;
 pub mod batch;
 pub mod caption_cmd;
 pub mod csv;
+pub mod encode;
 pub mod mcp;
 pub mod preview;
 pub mod render_doc;

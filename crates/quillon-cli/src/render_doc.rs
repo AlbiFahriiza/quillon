@@ -37,16 +37,25 @@ const CACHE_MEMORY_BYTES: usize = 128 << 20;
 /// Render a validated document to MP4 (system ffmpeg) or PNG frames and
 /// write its manifest. `base` resolves relative asset paths; `workers`,
 /// `cache_dir` and `lufs` mirror the CLI flags (None = defaults).
+/// Everything a render may tune, bundled for the parameter budget.
+pub struct RenderOptions<'a> {
+    pub workers: Option<usize>,
+    pub cache_dir: Option<&'a Path>,
+    pub lufs: Option<f64>,
+    /// The ffmpeg `-c:v` codec ("libx264" for software; a hardware
+    /// encoder for `--encode auto|name`). Encoded bytes are not part of
+    /// the determinism contract — frames are.
+    pub video_codec: &'a str,
+}
+
 pub fn render_document(
     doc: &Document,
     base: &Path,
     out: &Path,
     format: Format,
-    workers: Option<usize>,
-    cache_dir: Option<&Path>,
-    lufs: Option<f64>,
+    opts: &RenderOptions,
 ) -> Result<RenderOutcome, String> {
-    let workers = workers.unwrap_or_else(|| {
+    let workers = opts.workers.unwrap_or_else(|| {
         std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1)
@@ -61,7 +70,7 @@ pub fn render_document(
 
     // Opt-in cache: content-addressed frames keyed by document subtree,
     // renderer version, asset hashes and tick (research/G).
-    let cache = match cache_dir {
+    let cache = match opts.cache_dir {
         Some(dir) => Some(
             quillon_cache::FrameCache::open(dir, CACHE_MEMORY_BYTES).map_err(|err| {
                 format!("cannot open the cache directory {}: {err}", dir.display())
@@ -108,7 +117,7 @@ pub fn render_document(
     // pipeline chunk plus the channel, never the whole video (research/R).
     let mut sink = match format {
         Format::Mp4 => Some(
-            Mp4Sink::new(out, doc.size.w, doc.size.h, doc.fps)
+            Mp4Sink::new(out, doc.size.w, doc.size.h, doc.fps, opts.video_codec)
                 .map_err(|err| format!("cannot start the encoder: {err}"))?,
         ),
         Format::Png => {
@@ -149,7 +158,7 @@ pub fn render_document(
     // Audio: mix the document's tracks, optionally normalize loudness, and
     // mux them into the MP4 (video stream copied, audio AAC-encoded once).
     if !doc.audio.is_empty() && format == Format::Mp4 {
-        mux_document_audio(doc, base, out, lufs)?;
+        mux_document_audio(doc, base, out, opts.lufs)?;
     }
 
     let cache_stats = cache.as_ref().map(|c| c.stats());

@@ -73,6 +73,11 @@ enum Command {
         /// the EBU R128 broadcast preset is -23.
         #[arg(long)]
         lufs: Option<f64>,
+        /// Video encoder: "software" (libx264, default), "auto"
+        /// (hardware when available, with a printed fallback), or an
+        /// explicit ffmpeg encoder name.
+        #[arg(long, default_value = "software")]
+        encode: String,
         /// Fill the document's template variables from this CSV, one
         /// video per row (mail merge); `--out` is a `{{variable}}`
         /// pattern.
@@ -220,6 +225,11 @@ enum AudioAction {
     },
 }
 
+/// Exit from inside the command dispatch (the match arms compute codes).
+fn return_exit(code: i32) -> ! {
+    std::process::exit(code)
+}
+
 fn main() {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -244,25 +254,62 @@ fn main() {
             workers,
             cache_dir,
             lufs,
+            encode,
             data,
             json,
-        } => match data {
-            Some(data) => {
-                let out_pattern = out.to_string_lossy().to_string();
-                let args = quillon_cli::batch::BatchArgs {
-                    template: &doc,
-                    data: &data,
-                    out_pattern: &out_pattern,
+        } => {
+            // Resolve the encoder once for the whole run (probe on the
+            // real ffmpeg; software is pinned, auto never falls back
+            // silently, unknown names list what exists).
+            let choice = match quillon_cli::encode::EncodeChoice::parse(&encode) {
+                Ok(choice) => choice,
+                Err(err) => {
+                    eprintln!("{err}");
+                    return_exit(1);
+                }
+            };
+            let plan = match quillon_cli::encode::probe_encoders()
+                .map_err(|e| vec![e])
+                .and_then(|available| quillon_cli::encode::resolve(&choice, &available))
+            {
+                Ok(plan) => plan,
+                Err(err) => {
+                    eprintln!("{err}");
+                    return_exit(1);
+                }
+            };
+            if let Some(note) = &plan.fallback_note {
+                eprintln!("note: {note}");
+            }
+            match data {
+                Some(data) => {
+                    let out_pattern = out.to_string_lossy().to_string();
+                    let args = quillon_cli::batch::BatchArgs {
+                        template: &doc,
+                        data: &data,
+                        out_pattern: &out_pattern,
+                        format,
+                        workers,
+                        cache_dir: cache_dir.as_deref(),
+                        lufs,
+                        video_codec: &plan.codec,
+                        json,
+                    };
+                    render_data(args)
+                }
+                None => render(RenderRun {
+                    path: &doc,
+                    out: &out,
                     format,
                     workers,
                     cache_dir: cache_dir.as_deref(),
                     lufs,
                     json,
-                };
-                render_data(args)
+                    codec: &plan.codec,
+                    hw_encode: plan.hardware,
+                }),
             }
-            None => render(&doc, &out, format, workers, cache_dir, lufs, json),
-        },
+        }
         Command::Preview { doc, port } => preview(&doc, port),
         Command::Mcp { root } => quillon_cli::mcp::run(root),
         Command::Caption { action } => match action {
@@ -591,29 +638,43 @@ fn render_data(args: quillon_cli::batch::BatchArgs) -> i32 {
     }
 }
 
-fn render(
-    path: &Path,
-    out: &Path,
+/// A single render's parameters, bundled for the parameter budget.
+struct RenderRun<'a> {
+    path: &'a Path,
+    out: &'a Path,
     format: Format,
     workers: Option<usize>,
-    cache_dir: Option<PathBuf>,
+    cache_dir: Option<&'a Path>,
     lufs: Option<f64>,
     json: bool,
-) -> i32 {
+    codec: &'a str,
+    hw_encode: bool,
+}
+
+fn render(run: RenderRun) -> i32 {
+    let RenderRun {
+        path,
+        out,
+        format,
+        workers,
+        cache_dir,
+        lufs,
+        json,
+        codec,
+        hw_encode,
+    } = run;
     let doc = match read_document(path) {
         Ok(doc) => doc,
         Err(code) => return code,
     };
     let base = path.parent().unwrap_or(Path::new("."));
-    match quillon_cli::render_doc::render_document(
-        &doc,
-        base,
-        out,
-        format,
+    let options = quillon_cli::render_doc::RenderOptions {
         workers,
-        cache_dir.as_deref(),
+        cache_dir,
         lufs,
-    ) {
+        video_codec: codec,
+    };
+    match quillon_cli::render_doc::render_document(&doc, base, out, format, &options) {
         Ok(outcome) => {
             if !doc.audio.is_empty() && format == Format::Png {
                 eprintln!(
@@ -625,6 +686,10 @@ fn render(
                     "output": outcome.output,
                     "manifest": outcome.manifest_path,
                     "frames": outcome.frames,
+                    "encoder": codec,
+                    // Hardware encoders change encoded bytes; the
+                    // pixel-hash guarantee covers frames, not the codec.
+                    "hw_encode": hw_encode,
                 });
                 println!("{body}");
             } else {

@@ -22,6 +22,8 @@ pub struct BatchArgs<'a> {
     pub workers: Option<usize>,
     pub cache_dir: Option<&'a Path>,
     pub lufs: Option<f64>,
+    /// Resolved encoder codec, shared by every row.
+    pub video_codec: &'a str,
     pub json: bool,
 }
 
@@ -82,16 +84,14 @@ pub fn render_batch(args: &BatchArgs) -> Result<BatchSummary, String> {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("row {}: cannot create {}: {e}", i + 2, parent.display()))?;
         }
-        let outcome: RenderOutcome = render_document(
-            &doc,
-            &base,
-            &out,
-            args.format,
-            args.workers,
-            args.cache_dir,
-            args.lufs,
-        )
-        .map_err(|e| format!("row {}: render failed: {e}", i + 2))?;
+        let options = crate::render_doc::RenderOptions {
+            workers: args.workers,
+            cache_dir: args.cache_dir,
+            lufs: args.lufs,
+            video_codec: args.video_codec,
+        };
+        let outcome: RenderOutcome = render_document(&doc, &base, &out, args.format, &options)
+            .map_err(|e| format!("row {}: render failed: {e}", i + 2))?;
         if let Some((h, m)) = outcome.cache_stats {
             hits += h;
             misses += m;

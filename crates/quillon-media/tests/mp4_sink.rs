@@ -43,7 +43,7 @@ fn renders_document_to_a_playable_mp4() {
     let doc = load_doc();
     let renderer = Renderer::new(&doc, PathBuf::from(FIXTURES).as_path()).unwrap();
     let out = std::env::temp_dir().join(format!("quillon-media-test-{}.mp4", std::process::id()));
-    let mut sink = Mp4Sink::new(&out, doc.size.w, doc.size.h, doc.fps).unwrap();
+    let mut sink = Mp4Sink::new(&out, doc.size.w, doc.size.h, doc.fps, "libx264").unwrap();
 
     for i in 0..doc.frame_count() {
         let tick = (i as i64) * frame_tick(doc.fps);

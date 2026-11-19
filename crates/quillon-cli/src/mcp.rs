@@ -406,7 +406,13 @@ impl QuillonServer {
         let id = run_id.clone();
         let reported_out = out.clone();
         std::thread::spawn(move || {
-            let result = render_doc::render_document(&doc, &base, &out, format, None, None, None);
+            let options = render_doc::RenderOptions {
+                workers: None,
+                cache_dir: None,
+                lufs: None,
+                video_codec: "libx264",
+            };
+            let result = render_doc::render_document(&doc, &base, &out, format, &options);
             let status = match result {
                 Ok(outcome) => RunStatus::Done(outcome),
                 Err(err) => RunStatus::Failed(err),

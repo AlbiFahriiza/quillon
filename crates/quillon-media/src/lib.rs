@@ -52,7 +52,13 @@ fn require_even(width: u32, height: u32) -> Result<(), SinkError> {
 
 impl Mp4Sink {
     /// Spawn ffmpeg writing H.264 (yuv420p) to `path`.
-    pub fn new(path: &Path, width: u32, height: u32, fps: u32) -> Result<Mp4Sink, SinkError> {
+    pub fn new(
+        path: &Path,
+        width: u32,
+        height: u32,
+        fps: u32,
+        video_codec: &str,
+    ) -> Result<Mp4Sink, SinkError> {
         require_even(width, height)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| SinkError::Spawn {
@@ -74,7 +80,7 @@ impl Mp4Sink {
                 "-i",
                 "-",
                 "-c:v",
-                "libx264",
+                video_codec,
                 "-preset",
                 "medium",
                 "-crf",
@@ -203,7 +209,7 @@ mod tests {
 
     #[test]
     fn odd_canvas_is_refused_before_spawning() {
-        let err = match Mp4Sink::new(Path::new("/tmp/quillon-odd.mp4"), 321, 240, 30) {
+        let err = match Mp4Sink::new(Path::new("/tmp/quillon-odd.mp4"), 321, 240, 30, "libx264") {
             Err(err) => err,
             Ok(_) => panic!("odd width must be refused"),
         };
