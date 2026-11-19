@@ -16,10 +16,11 @@ use crate::color::Color;
 use crate::document::{Anim, Asset, Document, Element, Scene, Track};
 use crate::schema::document_schema;
 use crate::{
-    DOCUMENT_VERSION, MAX_ASSETS, MAX_AUDIO_RATE, MAX_AUDIO_TRACKS, MAX_BLUR_PX, MAX_DIMENSION,
-    MAX_ELEMENTS_PER_SCENE, MAX_FADES_PER_TRACK, MAX_FPS, MAX_GAIN, MAX_GRADIENT_STOPS, MAX_ID_LEN,
-    MAX_KEYS_PER_TRACK, MAX_RADIUS_PX, MAX_SCENES, MAX_SPEED, MAX_TEXT_LEN, MAX_TEXT_SIZE,
-    MIN_AUDIO_RATE, MIN_DIMENSION, time,
+    DOCUMENT_VERSION, MAX_ASSETS, MAX_AUDIO_RATE, MAX_AUDIO_TRACKS, MAX_BLUR_PX,
+    MAX_CAPTION_TRACKS, MAX_CUES_PER_TRACK, MAX_DIMENSION, MAX_ELEMENTS_PER_SCENE,
+    MAX_FADES_PER_TRACK, MAX_FPS, MAX_GAIN, MAX_GRADIENT_STOPS, MAX_ID_LEN, MAX_KEYS_PER_TRACK,
+    MAX_RADIUS_PX, MAX_SCENES, MAX_SPEED, MAX_TEXT_LEN, MAX_TEXT_SIZE, MIN_AUDIO_RATE,
+    MIN_DIMENSION, time,
 };
 use jsonschema::validator_for;
 use serde::{Deserialize, Serialize};
@@ -97,6 +98,7 @@ pub fn validate_document(doc: &Document, base_dir: &Path) -> Vec<ValidationError
     validate_header(doc, &mut errors);
     validate_assets(doc, base_dir, &mut errors);
     validate_audio(doc, &mut errors);
+    validate_captions(doc, &mut errors);
     validate_scenes(doc, &mut errors);
     errors
 }
@@ -671,6 +673,138 @@ fn validate_audio(doc: &Document, errors: &mut Vec<ValidationError>) {
                 format!("audio track references unknown asset \"{}\"", track.asset),
             )),
         }
+    }
+}
+
+/// Caption tracks (plan §12 v0.5): style sanity, cue ordering, and timing
+/// inside the document. A cue past the end is an error, not a warning — it
+/// could never appear on screen.
+fn validate_captions(doc: &Document, errors: &mut Vec<ValidationError>) {
+    if doc.captions.is_empty() {
+        return;
+    }
+    if doc.captions.len() > MAX_CAPTION_TRACKS {
+        errors.push(ValidationError::new(
+            "/captions",
+            "limit",
+            format!("more than {MAX_CAPTION_TRACKS} caption tracks are not accepted"),
+        ));
+    }
+    let duration = doc.total_duration();
+    for (i, track) in doc.captions.iter().enumerate() {
+        validate_caption_style(&track.style, &format!("/captions/{i}/style"), doc, errors);
+        if track.cues.len() > MAX_CUES_PER_TRACK {
+            errors.push(ValidationError::new(
+                format!("/captions/{i}/cues"),
+                "limit",
+                format!("more than {MAX_CUES_PER_TRACK} cues per caption track are not accepted"),
+            ));
+        }
+        for (j, cue) in track.cues.iter().enumerate() {
+            let path = format!("/captions/{i}/cues/{j}");
+            if cue.text.trim().is_empty() {
+                errors.push(ValidationError::new(
+                    format!("{path}/text"),
+                    "caption-text",
+                    "caption text must not be empty",
+                ));
+            }
+            if cue.text.len() > MAX_TEXT_LEN {
+                errors.push(ValidationError::new(
+                    format!("{path}/text"),
+                    "limit",
+                    format!("caption text longer than {MAX_TEXT_LEN} bytes is not accepted"),
+                ));
+            }
+            if cue.from < 0 {
+                errors.push(ValidationError::new(
+                    format!("{path}/from"),
+                    "caption-timing",
+                    "cue start must be a non-negative number of ticks",
+                ));
+            }
+            if cue.to <= cue.from {
+                errors.push(ValidationError::new(
+                    format!("{path}/to"),
+                    "caption-timing",
+                    "cue end must be after its start (from < to)",
+                ));
+            }
+            if cue.to > duration {
+                errors.push(ValidationError::new(
+                    format!("{path}/to"),
+                    "caption-timing",
+                    format!(
+                        "cue ends at {} ticks but the document is only {duration} ticks long",
+                        cue.to
+                    ),
+                ));
+            }
+            if j > 0 {
+                let prev = &track.cues[j - 1];
+                if cue.from < prev.from {
+                    errors.push(ValidationError::new(
+                        format!("{path}/from"),
+                        "caption-order",
+                        "cues in one track must be sorted by start tick",
+                    ));
+                } else if cue.from < prev.to {
+                    errors.push(ValidationError::new(
+                        format!("{path}/from"),
+                        "caption-overlap",
+                        format!(
+                            "cues in one track must not overlap; the previous cue ends at {} ticks",
+                            prev.to
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn validate_caption_style(
+    style: &crate::caption::CaptionStyle,
+    path: &str,
+    doc: &Document,
+    errors: &mut Vec<ValidationError>,
+) {
+    if style.size <= 0.0 || style.size > MAX_TEXT_SIZE {
+        errors.push(ValidationError::new(
+            format!("{path}/size"),
+            "text-size",
+            format!("font size must be in (0, {MAX_TEXT_SIZE}]"),
+        ));
+    }
+    if style.margin < 0 {
+        errors.push(ValidationError::new(
+            format!("{path}/margin"),
+            "caption-margin",
+            "margin must be zero or a positive number of pixels",
+        ));
+    }
+    push_color_error(&style.color, &format!("{path}/color"), errors);
+    if let Some(s) = &style.shadow {
+        validate_shadow(s, &format!("{path}/shadow"), errors);
+    }
+    if let Some(bg) = &style.bg {
+        push_color_error(bg, &format!("{path}/bg"), errors);
+    }
+    match doc.assets.get(&style.font) {
+        Some(Asset::Font { .. }) => {}
+        Some(_) => errors.push(ValidationError::new(
+            format!("{path}/font"),
+            "asset-type",
+            format!("asset \"{}\" exists but is not a font", style.font),
+        )),
+        None => errors.push(ValidationError::new(
+            format!("{path}/font"),
+            "font-asset",
+            format!(
+                "caption track references unknown font asset \"{}\"",
+                style.font
+            ),
+        )),
     }
 }
 

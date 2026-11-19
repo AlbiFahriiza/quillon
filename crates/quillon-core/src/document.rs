@@ -1,6 +1,7 @@
 //! The v1 document model (myquillonplan.md §5). Elements are a
 //! `type`-discriminated union; time is ticks; colors are sRGB hex.
 
+use crate::caption::CaptionTrack;
 use crate::color::Color;
 use crate::easing::Ease;
 use schemars::JsonSchema;
@@ -515,6 +516,10 @@ pub struct Document {
     /// The audio mix: tracks are summed, each with gain, fades, and placement.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub audio: Vec<AudioTrack>,
+    /// Caption tracks burned in over the composited frames (plan §12 v0.5).
+    /// Cue timing is on the document timeline and may cross scenes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub captions: Vec<CaptionTrack>,
     pub scenes: Vec<Scene>,
 }
 
@@ -567,6 +572,7 @@ mod tests {
             assets: BTreeMap::new(),
             audio_rate: 48_000,
             audio: Vec::new(),
+            captions: Vec::new(),
             scenes: vec![
                 Scene {
                     id: "a".into(),

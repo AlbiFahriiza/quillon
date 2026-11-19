@@ -3,6 +3,7 @@
 //! document. The builder does not validate; run the document through
 //! [`crate::validate_document`] before rendering.
 
+use crate::caption::CaptionTrack;
 use crate::color::Color;
 use crate::document::{
     Anim, Asset, AudioTrack, ClipRect, ColorSpace, Document, FadeDef, FadeKind, Fit, GradientDef,
@@ -33,6 +34,7 @@ impl DocumentBuilder {
                 assets: BTreeMap::new(),
                 audio_rate: 48_000,
                 audio: Vec::new(),
+                captions: Vec::new(),
                 scenes: Vec::new(),
             },
         }
@@ -61,6 +63,13 @@ impl DocumentBuilder {
     /// Add a track to the document's audio mix (plan §5.1 audio array).
     pub fn audio_track(mut self, track: AudioTrack) -> Self {
         self.doc.audio.push(track);
+        self
+    }
+
+    /// Add a caption track to be burned in over the rendered frames
+    /// (plan §12 v0.5).
+    pub fn caption_track(mut self, track: CaptionTrack) -> Self {
+        self.doc.captions.push(track);
         self
     }
 

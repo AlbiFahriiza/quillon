@@ -724,3 +724,205 @@ fn audio_reversed_source_range_is_rejected() {
         "{errors:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// v0.5 caption boundaries (plan §12 v0.5, §9.5): one bottom track whose cues
+// stay inside the single 1s scene and reference the font fixture.
+// ---------------------------------------------------------------------------
+
+fn caption_json() -> String {
+    r##"{
+            "v": 1,
+            "size": { "w": 320, "h": 240 },
+            "assets": {
+                "f": { "type": "font", "src": "assets/font.ttf" }
+            },
+            "captions": [
+                {
+                    "style": { "font": "f", "size": 24.0 },
+                    "cues": [
+                        { "from": 0, "to": 352800000, "text": "hello" },
+                        { "from": 352800000, "to": 705600000, "text": "captions" }
+                    ]
+                }
+            ],
+            "scenes": [ { "id": "s1", "duration": 705600000, "elements": [] } ]
+        }"##
+    .to_string()
+}
+
+#[test]
+fn caption_track_passes_validation() {
+    let doc = validate_str(&caption_json(), Path::new(FIXTURES))
+        .unwrap_or_else(|e| panic!("valid caption track rejected: {e:?}"));
+    assert_eq!(doc.captions.len(), 1);
+    assert_eq!(doc.captions[0].cue_at(0).unwrap().text, "hello");
+}
+
+#[test]
+fn caption_style_takes_documented_defaults() {
+    let doc = validate_str(&caption_json(), Path::new(FIXTURES)).unwrap();
+    let style = &doc.captions[0].style;
+    assert_eq!(style.margin, 48);
+    assert_eq!(
+        style.position,
+        quillon_core::CaptionPosition::Bottom,
+        "position default"
+    );
+}
+
+#[test]
+fn caption_unknown_font_is_rejected() {
+    let json = caption_json().replace(
+        r#""font": "f", "size": 24.0"#,
+        r#""font": "nope", "size": 24.0"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "font-asset" && e.path == "/captions/0/style/font"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_font_of_wrong_kind_is_rejected() {
+    let json = caption_json().replace(
+        r##""f": { "type": "font", "src": "assets/font.ttf" }"##,
+        r##""f": { "type": "image", "src": "assets/dot.png" }"##,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "asset-type" && e.path == "/captions/0/style/font"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_empty_text_is_rejected() {
+    let json = caption_json().replace(r#""text": "hello""#, r#""text": "   ""#);
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "caption-text" && e.path == "/captions/0/cues/0/text"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_zero_size_is_rejected() {
+    let json = caption_json().replace(
+        r#""font": "f", "size": 24.0"#,
+        r#""font": "f", "size": 0.0"#,
+    );
+    let errors = errors_for(&json);
+    assert!(errors.iter().any(|e| e.code == "text-size"), "{errors:?}");
+}
+
+#[test]
+fn caption_negative_margin_is_rejected() {
+    let json = caption_json().replace(
+        r#""font": "f", "size": 24.0"#,
+        r#""font": "f", "size": 24.0, "margin": -1"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors.iter().any(|e| e.code == "caption-margin"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_negative_from_is_rejected() {
+    let json = caption_json().replace(
+        r#"{ "from": 0, "to": 352800000"#,
+        r#"{ "from": -1, "to": 352800000"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "caption-timing" && e.path == "/captions/0/cues/0/from"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_reversed_cue_is_rejected() {
+    let json = caption_json().replace(
+        r#"{ "from": 0, "to": 352800000"#,
+        r#"{ "from": 352800000, "to": 0"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "caption-timing" && e.path == "/captions/0/cues/0/to"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_past_document_end_is_rejected() {
+    let json = caption_json().replace(
+        r#"{ "from": 352800000, "to": 705600000, "text": "captions" }"#,
+        r#"{ "from": 352800000, "to": 705600001, "text": "captions" }"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "caption-timing" && e.path == "/captions/0/cues/1/to"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_overlap_is_rejected() {
+    let json = caption_json().replace(
+        r#"{ "from": 352800000, "to": 705600000, "text": "captions" }"#,
+        r#"{ "from": 100000000, "to": 705600000, "text": "captions" }"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "caption-overlap" && e.path == "/captions/0/cues/1/from"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_unsorted_cues_are_rejected() {
+    let json = caption_json().replace(
+        r#"{ "from": 0, "to": 352800000, "text": "hello" },
+                        { "from": 352800000, "to": 705600000, "text": "captions" }"#,
+        r#"{ "from": 100000000, "to": 200000000, "text": "hello" },
+                        { "from": 0, "to": 50000000, "text": "earlier" }"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "caption-order" && e.path == "/captions/0/cues/1/from"),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn caption_unknown_style_field_is_rejected() {
+    let json = caption_json().replace(
+        r#""style": { "font": "f", "size": 24.0 }"#,
+        r##""style": { "font": "f", "size": 24.0, "colour": "#ffffff" }"##,
+    );
+    let errors = errors_for(&json);
+    let joined = format!("{errors:?}");
+    assert!(
+        joined.contains("colour") || joined.contains("unknown"),
+        "typo fields must be rejected, got {joined}"
+    );
+}

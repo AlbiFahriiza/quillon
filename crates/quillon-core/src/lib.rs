@@ -5,6 +5,7 @@
 
 pub mod builder;
 pub mod canonical;
+pub mod caption;
 pub mod color;
 pub mod diff;
 pub mod document;
@@ -18,6 +19,7 @@ pub mod validate;
 
 pub use builder::DocumentBuilder;
 pub use canonical::canonical_json;
+pub use caption::{CaptionCue, CaptionPosition, CaptionStyle, CaptionTrack};
 pub use color::Color;
 pub use diff::{DiffEntry, DiffReport, diff_documents};
 pub use document::{
@@ -61,3 +63,7 @@ pub const MAX_AUDIO_RATE: u32 = 192_000;
 pub const MAX_AUDIO_TRACKS: usize = 32;
 /// Most fades accepted on one audio track.
 pub const MAX_FADES_PER_TRACK: usize = 64;
+/// Most caption tracks in one document (track 2 is usually a translation).
+pub const MAX_CAPTION_TRACKS: usize = 8;
+/// Most cues accepted on one caption track.
+pub const MAX_CUES_PER_TRACK: usize = 5_000;

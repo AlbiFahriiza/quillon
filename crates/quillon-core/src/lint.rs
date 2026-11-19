@@ -6,6 +6,7 @@
 //! Text metrics are estimated (0.6 em average advance): core must stay free
 //! of font dependencies so it cannot diverge from the pinned-font renderer.
 
+use crate::caption::CaptionPosition;
 use crate::color::contrast_ratio;
 use crate::document::{Document, Element};
 use serde::{Deserialize, Serialize};
@@ -117,7 +118,52 @@ pub fn lint_document(doc: &Document) -> Vec<LintFinding> {
         }
         lint_scene_read_time(doc, i, &mut findings);
     }
+    lint_caption_collisions(doc, &mut findings);
     findings
+}
+
+/// v0.5: a bottom caption sharing screen time with a lower-third text
+/// element is a readability collision (the fifth v0.1 lint class in plan
+/// §5.2, actionable now that captions exist as document tracks).
+fn lint_caption_collisions(doc: &Document, findings: &mut Vec<LintFinding>) {
+    for (ti, track) in doc.captions.iter().enumerate() {
+        if track.style.position != CaptionPosition::Bottom {
+            continue;
+        }
+        let line_height = track.style.size * 1.2;
+        for (ci, cue) in track.cues.iter().enumerate() {
+            let lines = cue.text.lines().count().max(1) as f32;
+            // The band this cue's block occupies, estimated like text_bbox.
+            let band_top = doc.size.h as f32 - track.style.margin as f32 - lines * line_height;
+            for (si, scene) in doc.scenes.iter().enumerate() {
+                if !scene_overlaps_cue(doc, si, cue.from, cue.to) {
+                    continue;
+                }
+                for (j, element) in scene.elements.iter().enumerate() {
+                    if let Element::Text(t) = element {
+                        let bbox = text_bbox(t.x, t.y, &t.text, t.size);
+                        if bbox.bottom > band_top {
+                            findings.push(finding(
+                                format!("/captions/{ti}/cues/{ci}"),
+                                "lint/caption-collision",
+                                format!(
+                                    "cue overlaps the lower-third text at /scenes/{si}/elements/{j} during scene \"{}\"; move the caption, restyle the track, or reposition the text",
+                                    scene.id
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Does scene `si`'s time span overlap the half-open tick range [from, to)?
+fn scene_overlaps_cue(doc: &Document, si: usize, from: i64, to: i64) -> bool {
+    let start: i64 = doc.scenes[..si].iter().map(|s| s.duration).sum();
+    let end = start + doc.scenes[si].duration;
+    start < to && end > from
 }
 
 fn lint_bbox(path: &str, bbox: Bbox, canvas: Bbox, findings: &mut Vec<LintFinding>) {
@@ -359,6 +405,100 @@ mod tests {
         let findings = lint_document(&doc);
         assert!(
             findings.iter().any(|f| f.code == "lint/scene-too-short"),
+            "{findings:?}"
+        );
+    }
+
+    fn caption_doc(position: CaptionPosition, text_y: i64, cue: (i64, i64)) -> Document {
+        use crate::caption::{CaptionCue, CaptionStyle, CaptionTrack};
+        use crate::document::TextAlign;
+        DocumentBuilder::new(Size { w: 1920, h: 1080 })
+            .scene(Scene {
+                id: "s".into(),
+                duration: crate::time::FLICKS_PER_SECOND * 5,
+                transition_in: None,
+                elements: vec![text_el("lower third", 960, text_y, "#ffffff")],
+            })
+            .caption_track(CaptionTrack {
+                style: CaptionStyle {
+                    font: "f".into(),
+                    size: 42.0,
+                    color: Color::parse("#ffffff").unwrap(),
+                    align: TextAlign::Center,
+                    position,
+                    margin: 48,
+                    shadow: None,
+                    bg: None,
+                },
+                cues: vec![CaptionCue {
+                    from: cue.0,
+                    to: cue.1,
+                    text: "hello captions".into(),
+                }],
+            })
+            .build()
+    }
+
+    #[test]
+    fn bottom_caption_over_lower_third_is_flagged() {
+        // Text at y=1000 with the caption band around y~974-1080: a clash.
+        let doc = caption_doc(
+            CaptionPosition::Bottom,
+            1000,
+            (0, crate::time::FLICKS_PER_SECOND * 5),
+        );
+        let findings = lint_document(&doc);
+        assert!(
+            findings.iter().any(|f| f.code == "lint/caption-collision"),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn centered_caption_or_away_text_is_clean() {
+        for (position, y) in [
+            (CaptionPosition::Center, 1000),
+            (CaptionPosition::Bottom, 540),
+        ] {
+            let doc = caption_doc(position, y, (0, crate::time::FLICKS_PER_SECOND * 5));
+            let findings = lint_document(&doc);
+            assert!(
+                !findings.iter().any(|f| f.code == "lint/caption-collision"),
+                "{position:?} at y={y}: {findings:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn caption_outside_scene_time_is_clean() {
+        // Scene 2 (5-10s) holds the lower third; the cue lives in scene 1.
+        let doc = caption_doc(
+            CaptionPosition::Bottom,
+            1000,
+            (0, crate::time::FLICKS_PER_SECOND * 5 - 1),
+        );
+        // Rebuild with the text scene appended after a quiet first scene.
+        let quiet = Scene {
+            id: "quiet".into(),
+            duration: crate::time::FLICKS_PER_SECOND * 5,
+            transition_in: None,
+            elements: vec![],
+        };
+        let mut builder = DocumentBuilder::new(Size { w: 1920, h: 1080 }).scene(quiet);
+        for track in doc.captions {
+            builder = builder.caption_track(track);
+        }
+        let doc = builder
+            .scene(Scene {
+                id: "talk".into(),
+                duration: crate::time::FLICKS_PER_SECOND * 5,
+                transition_in: None,
+                elements: vec![text_el("lower third", 960, 1000, "#ffffff")],
+            })
+            .build();
+        let findings = lint_document(&doc);
+        assert!(
+            !findings.iter().any(|f| f.code == "lint/caption-collision"),
             "{findings:?}"
         );
     }

@@ -195,6 +195,130 @@
       ],
       "type": "object"
     },
+    "CaptionCue": {
+      "additionalProperties": false,
+      "description": "One caption: `text` shown for the half-open tick range `[from, to)` on\nthe document timeline.",
+      "properties": {
+        "from": {
+          "description": "Inclusive start tick, `>= 0`.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "text": {
+          "description": "Non-empty; newlines split lines.",
+          "type": "string"
+        },
+        "to": {
+          "description": "Exclusive end tick; `> from` and `<=` the document duration.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "text"
+      ],
+      "type": "object"
+    },
+    "CaptionPosition": {
+      "description": "Vertical placement of the caption block on the canvas.",
+      "oneOf": [
+        {
+          "const": "bottom",
+          "description": "Near the bottom edge, above `margin` pixels (the subtitle default).",
+          "type": "string"
+        },
+        {
+          "const": "center",
+          "description": "Vertically centered on the canvas.",
+          "type": "string"
+        },
+        {
+          "const": "top",
+          "description": "Near the top edge, below `margin` pixels.",
+          "type": "string"
+        }
+      ]
+    },
+    "CaptionStyle": {
+      "additionalProperties": false,
+      "description": "How one caption track looks. One style per track; a second track (a\ntranslation, say) brings its own style and position.",
+      "properties": {
+        "align": {
+          "$ref": "#/$defs/TextAlign",
+          "default": "center"
+        },
+        "bg": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Color"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional backing box color drawn under the text block."
+        },
+        "color": {
+          "$ref": "#/$defs/Color",
+          "default": "#ffffff"
+        },
+        "font": {
+          "description": "Key of a `font` asset.",
+          "type": "string"
+        },
+        "margin": {
+          "description": "Gap between the caption block and its canvas edge, in pixels.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "position": {
+          "$ref": "#/$defs/CaptionPosition",
+          "default": "bottom"
+        },
+        "shadow": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShadowDef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size": {
+          "description": "Font size in pixels, (0, 512].",
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "font",
+        "size"
+      ],
+      "type": "object"
+    },
+    "CaptionTrack": {
+      "additionalProperties": false,
+      "description": "A caption track: one style, cues sorted and non-overlapping (enforced by\nvalidation).",
+      "properties": {
+        "cues": {
+          "items": {
+            "$ref": "#/$defs/CaptionCue"
+          },
+          "type": "array"
+        },
+        "style": {
+          "$ref": "#/$defs/CaptionStyle"
+        }
+      },
+      "required": [
+        "style",
+        "cues"
+      ],
+      "type": "object"
+    },
     "ClipRect": {
       "additionalProperties": false,
       "description": "A rectangular clip in element-author coordinates: rect and image origins\nare their top-left corner, text origin is its center. The clip travels\nwith the element's transform and masks the element and its shadow.",
@@ -904,6 +1028,13 @@
       "maximum": 255,
       "minimum": 0,
       "type": "integer"
+    },
+    "captions": {
+      "description": "Caption tracks burned in over the composited frames (plan §12 v0.5).\nCue timing is on the document timeline and may cross scenes.",
+      "items": {
+        "$ref": "#/$defs/CaptionTrack"
+      },
+      "type": "array"
     },
     "color_space": {
       "$ref": "#/$defs/ColorSpace",
