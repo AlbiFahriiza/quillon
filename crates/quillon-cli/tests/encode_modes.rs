@@ -23,6 +23,7 @@ fn run(args: &[&str]) -> (i32, String, String) {
 fn software_encode_renders_and_reports_not_hw() {
     let out = format!("{FIXTURES}/encode-soft.mp4");
     let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(format!("{out}.manifest.json"));
     let (code, stdout, stderr) = run(&[
         "render",
         &format!("{FIXTURES}/valid.json"),
@@ -37,6 +38,7 @@ fn software_encode_renders_and_reports_not_hw() {
     assert_eq!(body["encoder"], "libx264");
     assert_eq!(body["hw_encode"], false);
     let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(format!("{out}.manifest.json"));
 }
 
 #[test]
@@ -45,6 +47,7 @@ fn auto_encode_never_falls_back_silently() {
     // libx264 AND print the fallback note.
     let out = format!("{FIXTURES}/encode-auto.mp4");
     let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(format!("{out}.manifest.json"));
     let (code, stdout, stderr) = run(&[
         "render",
         &format!("{FIXTURES}/valid.json"),
@@ -59,6 +62,7 @@ fn auto_encode_never_falls_back_silently() {
         "the fallback note must be printed: {stderr}"
     );
     let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(format!("{out}.manifest.json"));
 }
 
 #[test]

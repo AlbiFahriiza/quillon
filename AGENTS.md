@@ -68,6 +68,23 @@ silence ranges. The acceptance tests are
 `quillon-audio/tests/transcribe_acceptance.rs` (deterministic click-track)
 and `tests/whisper_e2e.rs` (ignored; needs the model).
 
+## Templates, OTIO and encoding (v0.6)
+
+Templates substitute on the JSON tree BEFORE validation
+(`apply_template_json`): typed variables (`string|number|color|asset`)
+with defaults, `{{name}}` markers in any string, unknown markers and
+undeclared CSV columns are named errors; rows that produce an invalid
+document exit 2. One shared cache directory serves the whole batch —
+scene-subtree keys make identical static frames hit. `quillon otio
+import` parses the flat OTIO subset in core (no external OTIO
+dependency; relative media URLs stay relative per the §11 confinement,
+absolute URLs rebase into --media-dir). `--encode auto` requires BOTH a
+compiled-in encoder and its device node (/dev/dri for VAAPI, /dev/nvidia*
+for NVENC) — an encoder list is not availability (first-hand
+observation recorded in the v0.6 design note). The libav in-process
+feature remains a documented deviation: no libav dev headers in this
+environment, and unverified code is not written (design note D5).
+
 ## Testing
 
 - Every validator boundary has a test (plan §9.5): negative ticks, zero

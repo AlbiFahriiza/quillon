@@ -96,6 +96,23 @@ silence ranges of the mix. Whisper transcription
 in `--features transcribe` builds; model weights download on first
 use.
 
+## Templates & OTIO (v0.6)
+
+Mail-merge: declare `"variables": {"name": {"type": "string",
+"default": "you"}}` on the document, put `{{name}}` in any string
+(text, colors, asset src, the output pattern), then render one video
+per CSV row — identical static scenes hit the shared cache:
+
+```
+quillon render template.json --data rows.csv -o 'out/{{name}}.mp4' --json
+```
+
+Values are type-checked per row (number/color/asset), unknown columns
+and markers are named errors, and every filled document goes through
+full validation. To import an edit: `quillon otio import
+timeline.otio -o doc.json` (flat Timeline→Track→Clip subset; source
+ranges land as exact ticks).
+
 ## Errors
 
 Every tool error names the step that failed and, for document

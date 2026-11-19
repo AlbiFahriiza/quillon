@@ -54,6 +54,8 @@ quillon caption import <subs.srt|subs.vtt|subs.ass> --doc <doc.json> [-o out.jso
                  [--position bottom|center|top] [--bg #rrggbb] [--no-regularize]
 quillon caption export <doc.json> [-o out.srt] [--track N] [--format srt|vtt]
 quillon audio analyze <doc.json> [--json] [--silence-db N] [--min-silence-ms N]
+quillon render <doc.json> --data rows.csv -o 'out/{{name}}.mp4' [--encode software|auto|<encoder>]
+quillon otio import <timeline.otio> [-o doc.json] [--media-dir <dir>]
 ```
 
 Exit codes: `0` success · `2` invalid document (errors carry JSON pointers) ·
@@ -73,6 +75,20 @@ cargo build --features transcribe    # adds `quillon caption transcribe`
 
 The model (whisper.cpp's tiny.en, sha256-pinned) downloads into the user
 cache on first use; default builds pull no C toolchain.
+
+**Templates (v0.6)**: declare typed `variables` on the document
+(string/number/color/asset, with defaults) and fill `{{name}}` markers
+from a CSV — `quillon render template.json --data rows.csv -o
+'out/{{name}}.mp4'` renders one video per row through one shared
+content-addressed cache (identical static frames render once; the
+`--json` summary reports the cache hits that prove it). **Interop
+(v0.6)**: `quillon otio import` reads the flat OTIO subset
+(Timeline→Stack→Track→Clip with source ranges; RationalTime becomes
+exact ticks; NTSC rates snap to their legal fps). **Encoding**:
+`--encode software` pins libx264; `--encode auto` probes encoders AND
+device nodes (a compiled-in encoder without `/dev/dri` or an NVIDIA
+node is not usable) and falls back with a printed note; a named encoder
+that is unavailable errors listing what ffmpeg offers.
 
 ## Agent surface (MCP)
 
