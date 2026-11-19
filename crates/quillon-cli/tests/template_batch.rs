@@ -26,13 +26,30 @@ struct Scratch(PathBuf);
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // The scratch may be a directory or a single file (a CSV);
+        // remove_dir_all alone silently leaves files behind.
+        if self.0.is_dir() {
+            let _ = std::fs::remove_dir_all(&self.0);
+        } else {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 }
 
 fn scratch(name: &str) -> Scratch {
     let p = PathBuf::from(format!("{FIXTURES}/{name}"));
     let _ = std::fs::remove_dir_all(&p);
+    Scratch(p)
+}
+
+/// A scratch directory in the system temp tree, for inputs tests write
+/// themselves. Never write into fixtures/ by file name: several of
+/// those names are committed fixtures, and overwriting them (then
+/// removing them on drop) deletes repository files.
+fn temp_scratch(tag: &str) -> Scratch {
+    let p = std::env::temp_dir().join(format!("quillon-tb-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&p);
+    std::fs::create_dir_all(&p).expect("temp scratch dir");
     Scratch(p)
 }
 
@@ -97,14 +114,15 @@ fn batch_without_data_still_renders_a_single_document() {
 
 #[test]
 fn bad_row_column_stops_the_batch_with_row_context() {
-    let bad = Scratch(PathBuf::from(format!("{FIXTURES}/bad-rows.csv")));
-    std::fs::write(&bad.0, "nmae\nAda\n").unwrap();
+    let dir = temp_scratch("bad");
+    let csv = dir.0.join("bad-rows.csv");
+    std::fs::write(&csv, "nmae\nAda\n").unwrap();
     let out = scratch("bad-out");
     let (code, _stdout, stderr) = run(&[
         "render",
         &format!("{FIXTURES}/template.json"),
         "--data",
-        bad.0.to_str().unwrap(),
+        csv.to_str().unwrap(),
         "-o",
         &format!("{}/{{{{nmae}}}}.mp4", out.0.display()),
     ]);
@@ -120,14 +138,15 @@ fn traversal_values_in_the_out_pattern_are_rejected() {
     // Hardening D3 end-to-end: a row value carrying "../" must not be
     // able to write outside the output directory through the --out
     // pattern.
-    let bad = Scratch(PathBuf::from(format!("{FIXTURES}/evil-rows.csv")));
-    std::fs::write(&bad.0, "name\n../../evil\n").unwrap();
+    let dir = temp_scratch("evil");
+    let csv = dir.0.join("evil-rows.csv");
+    std::fs::write(&csv, "name\n../../evil\n").unwrap();
     let out = scratch("evil-out");
     let (code, _stdout, stderr) = run(&[
         "render",
         &format!("{FIXTURES}/template.json"),
         "--data",
-        bad.0.to_str().unwrap(),
+        csv.to_str().unwrap(),
         "-o",
         &format!("{}/{{{{name}}}}.mp4", out.0.display()),
     ]);

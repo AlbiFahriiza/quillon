@@ -33,7 +33,13 @@ struct Scratch(PathBuf);
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // The scratch may be a directory or a single file (the caption
+        // document); remove_dir_all alone silently leaves files behind.
+        if self.0.is_dir() {
+            let _ = std::fs::remove_dir_all(&self.0);
+        } else {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 }
 
@@ -61,6 +67,12 @@ fn cli_contract_table() {
     let render_out = scratch("render-out");
     let batch_out = scratch("batch-out");
     let otio_out = scratch("otio-out");
+    let evil_out = scratch("evil-out");
+    // Written here, not a committed fixture: the traversal payload must
+    // not depend on file leftovers from other tests.
+    std::fs::create_dir_all(&evil_out.0).unwrap();
+    let evil_csv = evil_out.0.join("evil-rows.csv");
+    std::fs::write(&evil_csv, "name\n../../evil\n").unwrap();
     // The caption document sits directly in the fixtures tree so its
     // relative assets ("assets/font.ttf") resolve like the other
     // caption tests.
@@ -141,7 +153,7 @@ fn cli_contract_table() {
                 "render",
                 &fixture("template.json"),
                 "--data",
-                &fixture("evil-rows.csv"),
+                evil_csv.to_str().unwrap(),
                 "-o",
                 &format!("{}/{{{{name}}}}.mp4", batch_out.0.display()),
             ]),
