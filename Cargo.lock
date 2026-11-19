@@ -2193,7 +2193,7 @@ checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
 name = "quillon-audio"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ebur128",
  "quillon-core",
@@ -2204,7 +2204,7 @@ dependencies = [
 
 [[package]]
 name = "quillon-cache"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "quillon-core",
  "serde_json",
@@ -2213,7 +2213,7 @@ dependencies = [
 
 [[package]]
 name = "quillon-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2236,7 +2236,7 @@ dependencies = [
 
 [[package]]
 name = "quillon-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "jsonschema",
  "schemars",
@@ -2248,7 +2248,7 @@ dependencies = [
 
 [[package]]
 name = "quillon-media"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ffmpeg-sidecar",
  "quillon-core",
@@ -2261,7 +2261,7 @@ dependencies = [
 
 [[package]]
 name = "quillon-render"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "cosmic-text",
  "image",
@@ -4099,7 +4099,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "quillon-core",
