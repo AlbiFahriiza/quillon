@@ -100,6 +100,17 @@ fn resolve(
 /// Interpolate every `{{name}}` marker in `text` using resolved values.
 /// An unknown marker names the variable; empty markers are a syntax error.
 fn interpolate(text: &str, values: &BTreeMap<String, String>) -> Result<String, TemplateError> {
+    interpolate_with(text, values, false)
+}
+
+/// The interpolation walk. With `path_mode` (output patterns only) every
+/// substituted value must be a single safe path component — `/`, `\` and
+/// `..` in a row value would write outside the caller's output directory.
+fn interpolate_with(
+    text: &str,
+    values: &BTreeMap<String, String>,
+    path_mode: bool,
+) -> Result<String, TemplateError> {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("{{") {
@@ -120,6 +131,11 @@ fn interpolate(text: &str, values: &BTreeMap<String, String>) -> Result<String, 
                 "the document references variable \"{name}\", which is not declared under \"variables\""
             )));
         };
+        if path_mode && (value.contains('/') || value.contains('\\') || value.contains("..")) {
+            return Err(err(format!(
+                "variable \"{name}\" would fill the output path with {value:?}; path separators and \"..\" are not allowed in output names"
+            )));
+        }
         out.push_str(value);
         rest = &after[end + 2..];
     }
@@ -152,7 +168,12 @@ pub fn apply_template_json(
 }
 
 /// Fill a non-document pattern (the `--out` filename template) with a
-/// row's resolved values — same markers, same type checks.
+/// row's resolved values — same markers, same type checks. Row values
+/// are untrusted input, so a value carrying a path separator or `..`
+/// (which would escape the output directory) is a named error; the
+/// path structure the user typed in the pattern — including absolute
+/// output directories — is theirs to choose. A pattern that fills to
+/// an empty path is a named error too.
 pub fn fill_pattern(
     pattern: &str,
     defs: &BTreeMap<String, VariableDef>,
@@ -162,7 +183,11 @@ pub fn fill_pattern(
     for (name, def) in defs {
         values.insert(name.clone(), resolve(name, def, row)?);
     }
-    interpolate(pattern, &values)
+    let filled = interpolate_with(pattern, &values, true)?;
+    if filled.is_empty() {
+        return Err(err("the output pattern filled to an empty path"));
+    }
+    Ok(filled)
 }
 
 fn substitute_tree(
@@ -278,6 +303,72 @@ mod tests {
         let doc = json!({ "text": "a {{ b" });
         let out = apply_template_json(&doc, &defs(), &BTreeMap::new()).unwrap();
         assert_eq!(out["text"], json!("a {{ b"));
+    }
+
+    #[test]
+    fn pattern_values_cannot_escape_the_output_directory() {
+        // Hardening D3: row values land inside an output path, so the
+        // classic traversal payloads must be named errors.
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "name".into(),
+            VariableDef {
+                variable_type: VariableType::String,
+                default: "friend".into(),
+            },
+        );
+        for attack in ["../../evil", "/tmp/evil", "a\\b", "..", "sub/dir"] {
+            let mut row = BTreeMap::new();
+            row.insert("name".to_string(), attack.to_string());
+            let error = fill_pattern("out/{{name}}.mp4", &defs, &row).unwrap_err();
+            assert!(
+                error.message.contains("\"name\""),
+                "{attack}: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn pattern_static_slashes_stay_legal() {
+        // Path structure the user typed in the pattern itself is theirs
+        // to choose; only row values are confined.
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "name".into(),
+            VariableDef {
+                variable_type: VariableType::String,
+                default: "friend".into(),
+            },
+        );
+        let mut row = BTreeMap::new();
+        row.insert("name".to_string(), "Ada".to_string());
+        let out = fill_pattern("out/sub/{{name}}.mp4", &defs, &row).unwrap();
+        assert_eq!(out, "out/sub/Ada.mp4");
+    }
+
+    #[test]
+    fn empty_fill_is_a_named_error_but_absolute_patterns_are_legal() {
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "name".into(),
+            VariableDef {
+                variable_type: VariableType::String,
+                default: String::new(),
+            },
+        );
+        let row = BTreeMap::new();
+        let error = fill_pattern("{{name}}", &defs, &row).unwrap_err();
+        assert!(error.message.contains("empty"), "{}", error.message);
+        // An absolute output directory the user typed is their choice.
+        let out = fill_pattern("/out/sub/{{name}}.mp4", &defs, &row).unwrap();
+        assert_eq!(out, "/out/sub/.mp4");
+        // An absolute path built from a row value is still refused by
+        // the separator check.
+        let mut evil = BTreeMap::new();
+        evil.insert("name".to_string(), "/tmp/evil".to_string());
+        let error = fill_pattern("out/{{name}}.mp4", &defs, &evil).unwrap_err();
+        assert!(error.message.contains("\"name\""), "{}", error.message);
     }
 
     #[test]

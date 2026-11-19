@@ -116,6 +116,32 @@ fn bad_row_column_stops_the_batch_with_row_context() {
 }
 
 #[test]
+fn traversal_values_in_the_out_pattern_are_rejected() {
+    // Hardening D3 end-to-end: a row value carrying "../" must not be
+    // able to write outside the output directory through the --out
+    // pattern.
+    let bad = Scratch(PathBuf::from(format!("{FIXTURES}/evil-rows.csv")));
+    std::fs::write(&bad.0, "name\n../../evil\n").unwrap();
+    let out = scratch("evil-out");
+    let (code, _stdout, stderr) = run(&[
+        "render",
+        &format!("{FIXTURES}/template.json"),
+        "--data",
+        bad.0.to_str().unwrap(),
+        "-o",
+        &format!("{}/{{{{name}}}}.mp4", out.0.display()),
+    ]);
+    assert_eq!(code, 1, "the traversal value must be rejected: {stderr}");
+    assert!(
+        stderr.contains("row 2") && stderr.contains("output path"),
+        "the error names the row and the path rule: {stderr}"
+    );
+    // And nothing was written outside the output directory.
+    let escaped = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/evil.mp4");
+    assert!(!escaped.exists(), "the attack must not create {escaped:?}");
+}
+
+#[test]
 fn row_that_makes_an_invalid_document_exits_two() {
     // name is fine, but a {{name}} filled into a 10-char-limited field
     // would be invalid; here the template is valid, so instead we point a
