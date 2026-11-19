@@ -105,8 +105,95 @@
             "src"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "src": {
+              "type": "string"
+            },
+            "type": {
+              "const": "video",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "src"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sha256": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "src": {
+              "type": "string"
+            },
+            "type": {
+              "const": "audio",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "src"
+          ],
+          "type": "object"
         }
       ]
+    },
+    "AudioTrack": {
+      "additionalProperties": false,
+      "description": "One audio track of the mix: an audio asset placed on the document\ntimeline with gain, fades, and an optional source window (plan §5.1).",
+      "properties": {
+        "asset": {
+          "description": "Key of an `audio` asset.",
+          "type": "string"
+        },
+        "fades": {
+          "items": {
+            "$ref": "#/$defs/FadeDef"
+          },
+          "type": "array"
+        },
+        "gain": {
+          "description": "Linear gain, `>= 0` (1.0 = unity).",
+          "format": "float",
+          "type": "number"
+        },
+        "source_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Source window in ticks; absent means the whole file."
+        },
+        "start_at": {
+          "description": "Placement on the document timeline in ticks.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "asset"
+      ],
+      "type": "object"
     },
     "ClipRect": {
       "additionalProperties": false,
@@ -405,8 +492,130 @@
             "h"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A video drawn into a destination box, trimmed from its source (plan §5.1,\n§12 v0.3). `(x, y)` is the top-left corner, like an image.",
+          "properties": {
+            "anim": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Anim"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "asset": {
+              "description": "Key of a `video` asset.",
+              "type": "string"
+            },
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipRect"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fit": {
+              "$ref": "#/$defs/Fit",
+              "default": "contain"
+            },
+            "h": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "shadow": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ShadowDef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source_range": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SourceRange"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Source window in ticks; absent means the whole clip. `from == to`\nfreezes that single frame across the element's presence."
+            },
+            "speed": {
+              "description": "Playback speed multiplier (retime); 1.0 is real time.",
+              "format": "float",
+              "type": "number"
+            },
+            "type": {
+              "const": "video",
+              "type": "string"
+            },
+            "w": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "x": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "y": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "asset",
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "type": "object"
         }
       ]
+    },
+    "FadeDef": {
+      "additionalProperties": false,
+      "description": "A linear gain fade applied to an audio track, in the tick domain.",
+      "properties": {
+        "at": {
+          "description": "Track-local start tick, `>= 0`.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/FadeKind"
+        },
+        "len": {
+          "description": "Fade length in ticks, `> 0`.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "len",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FadeKind": {
+      "description": "Direction of an audio fade: `in` rises from silence, `out` falls to it.",
+      "enum": [
+        "in",
+        "out"
+      ],
+      "type": "string"
     },
     "Fit": {
       "description": "How an image fills its destination box (Editly's resizeMode set, research/G §2).",
@@ -586,6 +795,27 @@
       ],
       "type": "object"
     },
+    "SourceRange": {
+      "additionalProperties": false,
+      "description": "A half-open range of source-media time in ticks. `to > from` unless the\nrange freezes a single frame (`from == to`).",
+      "properties": {
+        "from": {
+          "description": "Inclusive start tick within the source.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "to": {
+          "description": "Exclusive end tick within the source; `> from`, or `== from` for a\nsingle frozen frame.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
     "TextAlign": {
       "description": "Horizontal text alignment within its line box.",
       "enum": [
@@ -650,6 +880,19 @@
       },
       "default": {},
       "type": "object"
+    },
+    "audio": {
+      "description": "The audio mix: tracks are summed, each with gain, fades, and placement.",
+      "items": {
+        "$ref": "#/$defs/AudioTrack"
+      },
+      "type": "array"
+    },
+    "audio_rate": {
+      "description": "Audio mix rate in Hz; every track is resampled to it. Flicks divide\nit exactly for the standard rates (48k, 44.1k).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
     },
     "bg": {
       "$ref": "#/$defs/Color",
