@@ -14,6 +14,7 @@ pub mod easing;
 pub mod frame_source;
 pub mod lint;
 pub mod schema;
+pub mod subtitle;
 pub mod time;
 pub mod validate;
 
@@ -29,6 +30,10 @@ pub use document::{
 pub use easing::{Ease, ElementState, apply_ease, evaluate_anim, evaluate_track};
 pub use frame_source::{Frame, FrameSource, MediaError, NullFrameSource};
 pub use lint::{LintFinding, lint_document};
+pub use subtitle::{
+    RegularizeConfig, SubtitleError, ms_to_ticks, parse_srt, parse_vtt, regularize_cues,
+    ticks_to_ms, to_srt, to_vtt,
+};
 pub use validate::{ValidationError, validate_document, validate_str};
 
 /// Document format version accepted by this build (plan §5, §14).
