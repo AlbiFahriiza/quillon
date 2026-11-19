@@ -12,7 +12,7 @@
       "duration": 2116800000,
       "elements": [
         {
-          "type": "rect", "x": 0, "y": 0, "w": 1280, "h": 720,
+          "type": "rect", "x": 0, "y": 0, "w": 1280, "h": 720, "color": "#1d2a45",
           "gradient": {
             "angle": 90,
             "stops": [
@@ -23,7 +23,7 @@
           }
         },
         {
-          "type": "rect", "x": 540, "y": 300, "w": 200, "h": 6, "color": "#7aa2f7",
+          "type": "rect", "x": 540, "y": 640, "w": 200, "h": 6, "color": "#7aa2f7",
           "radius": 3
         },
         {
@@ -34,7 +34,7 @@
           }
         },
         {
-          "type": "text", "text": "video as code", "font": "body", "x": 640, "y": 360, "size": 40.0, "color": "#8fa6c9",
+          "type": "text", "text": "video as code", "font": "body", "x": 640, "y": 360, "size": 40.0, "color": "#c3d2e8",
           "anim": {
             "opacity": { "keys": [ { "t": 176400000, "v": 0.0, "ease": "out_cubic" }, { "t": 529200000, "v": 1.0 } ] }
           }

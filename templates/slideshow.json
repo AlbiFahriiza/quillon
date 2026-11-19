@@ -15,7 +15,7 @@
       "elements": [
         { "type": "image", "asset": "sunset", "x": 0, "y": 0, "w": 1280, "h": 720, "fit": "cover" },
         {
-          "type": "text", "text": "dusk", "font": "body", "x": 64, "y": 620, "size": 56.0, "color": "#fff4e6"
+          "type": "text", "text": "dusk", "font": "body", "x": 150, "y": 620, "size": 56.0, "color": "#fff4e6"
         }
       ]
     },
@@ -25,7 +25,7 @@
       "elements": [
         { "type": "image", "asset": "geometry", "x": 0, "y": 0, "w": 1280, "h": 720, "fit": "cover" },
         {
-          "type": "text", "text": "city rhythm", "font": "body", "x": 64, "y": 620, "size": 56.0, "color": "#dbe4ff"
+          "type": "text", "text": "city rhythm", "font": "body", "x": 300, "y": 620, "size": 56.0, "color": "#dbe4ff"
         }
       ],
       "transition_in": { "kind": "crossfade", "duration": 470400000 }
