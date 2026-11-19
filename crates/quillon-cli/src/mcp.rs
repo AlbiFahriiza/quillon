@@ -674,3 +674,178 @@ pub fn run(root: Option<PathBuf>) -> i32 {
         }
     })
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests: the error and listing paths the E2E agent loop does not walk.
+// The happy-path loop is covered end-to-end in tests/mcp_e2e.rs.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workdir(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("quillon-mcp-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create unit-test workdir");
+        dir
+    }
+
+    fn text_of(result: &CallToolResult) -> String {
+        result
+            .content
+            .first()
+            .and_then(|block| block.as_text())
+            .map(|text| text.text.clone())
+            .expect("first content block is text")
+    }
+
+    #[tokio::test]
+    async fn render_status_rejects_unknown_run_ids() {
+        let dir = workdir("status");
+        let server = QuillonServer::new(dir);
+        let result = server
+            .render_status(Parameters(RenderStatusInput {
+                run_id: "nope".into(),
+            }))
+            .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(
+            text_of(&result).contains("unknown run id"),
+            "names the problem"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_media_rejects_path_traversal() {
+        let dir = workdir("traversal");
+        let server = QuillonServer::new(dir);
+        let result = server
+            .probe_media(Parameters(ProbeInput {
+                path: "../secrets".into(),
+            }))
+            .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(text_of(&result).contains(".."), "says what was rejected");
+    }
+
+    #[tokio::test]
+    async fn probe_media_reports_a_non_media_file_as_an_error() {
+        let dir = workdir("probe-bad");
+        std::fs::write(dir.join("notes.txt"), "not a media file").expect("write");
+        let server = QuillonServer::new(dir);
+        let result = server
+            .probe_media(Parameters(ProbeInput {
+                path: "notes.txt".into(),
+            }))
+            .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(text_of(&result).contains("probe_media"), "names the step");
+    }
+
+    #[tokio::test]
+    async fn diff_documents_names_the_document_that_fails_to_parse() {
+        let dir = workdir("diff");
+        let server = QuillonServer::new(dir);
+        let result = server
+            .diff_documents(Parameters(DiffInput {
+                a: json!({ "v": 1, "size": { "w": 10, "h": 10 } }), // no scenes
+                b: json!({ "v": 1, "size": { "w": 10, "h": 10 }, "scenes": [] }),
+            }))
+            .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(text_of(&result).contains("document A"), "points at A");
+    }
+
+    #[tokio::test]
+    async fn preview_frames_rejects_empty_and_out_of_range_ticks() {
+        let dir = workdir("preview");
+        let server = QuillonServer::new(dir);
+        let doc = json!({
+            "v": 1, "size": { "w": 320, "h": 240 }, "fps": 10,
+            "scenes": [ { "id": "s", "duration": 705600000, "elements": [] } ]
+        });
+        let empty = server
+            .preview_frames(Parameters(PreviewInput {
+                document: doc.clone(),
+                ticks: vec![],
+            }))
+            .await;
+        assert_eq!(empty.is_error, Some(true));
+        assert!(text_of(&empty).contains("1 to 16"));
+
+        let out_of_range = server
+            .preview_frames(Parameters(PreviewInput {
+                document: doc,
+                ticks: vec![705_600_000],
+            }))
+            .await;
+        assert_eq!(out_of_range.is_error, Some(true));
+        assert!(text_of(&out_of_range).contains("outside the document duration"));
+    }
+
+    #[tokio::test]
+    async fn render_document_rejects_unknown_formats() {
+        let dir = workdir("format");
+        let server = QuillonServer::new(dir);
+        let doc = json!({
+            "v": 1, "size": { "w": 320, "h": 240 }, "fps": 10,
+            "scenes": [ { "id": "s", "duration": 705600000, "elements": [] } ]
+        });
+        let result = server
+            .render_document(Parameters(RenderDocumentInput {
+                document: doc,
+                format: "avi".into(),
+                out: None,
+            }))
+            .await;
+        assert_eq!(result.is_error, Some(true));
+        assert!(text_of(&result).contains("mp4"), "says what is supported");
+    }
+
+    #[tokio::test]
+    async fn list_assets_and_fonts_classify_and_filter_the_working_root() {
+        let dir = workdir("scan");
+        std::fs::write(dir.join("clip.mp4"), b"x").expect("write");
+        std::fs::write(dir.join("body.ttf"), b"x").expect("write");
+        std::fs::write(dir.join("readme.md"), b"x").expect("write");
+
+        let server = QuillonServer::new(dir.clone());
+        let assets = server
+            .list_assets(Parameters(FilterInput { filter: None }))
+            .await;
+        assert_eq!(assets.is_error, Some(false));
+        let body: Value = serde_json::from_str(&text_of(&assets)).expect("JSON");
+        assert_eq!(
+            body["assets"].as_array().map(Vec::len),
+            Some(1),
+            "only media"
+        );
+        assert_eq!(body["assets"][0]["kind"], json!("video"));
+        assert_eq!(body["assets"][0]["id"], json!("clip.mp4"));
+
+        let fonts = server
+            .list_fonts(Parameters(FilterInput { filter: None }))
+            .await;
+        let body: Value = serde_json::from_str(&text_of(&fonts)).expect("JSON");
+        assert_eq!(
+            body["fonts"].as_array().map(Vec::len),
+            Some(1),
+            "only fonts"
+        );
+        assert_eq!(body["fonts"][0]["id"], json!("body.ttf"));
+
+        let filtered = server
+            .list_fonts(Parameters(FilterInput {
+                filter: Some("clip".into()),
+            }))
+            .await;
+        let body: Value = serde_json::from_str(&text_of(&filtered)).expect("JSON");
+        assert_eq!(
+            body["fonts"].as_array().map(Vec::len),
+            Some(0),
+            "filter drops non-matches"
+        );
+    }
+}
