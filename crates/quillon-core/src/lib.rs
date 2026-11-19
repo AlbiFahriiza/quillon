@@ -6,6 +6,7 @@
 pub mod builder;
 pub mod canonical;
 pub mod color;
+pub mod diff;
 pub mod document;
 pub mod draft;
 pub mod easing;
@@ -18,6 +19,7 @@ pub mod validate;
 pub use builder::DocumentBuilder;
 pub use canonical::canonical_json;
 pub use color::Color;
+pub use diff::{DiffEntry, DiffReport, diff_documents};
 pub use document::{
     Anim, Asset, AudioTrack, ColorSpace, Document, Element, FadeDef, FadeKind, Fit, ImageElement,
     Key, RectElement, Scene, Size, SourceRange, TextAlign, TextElement, Track, VideoElement,
