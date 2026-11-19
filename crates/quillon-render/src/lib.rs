@@ -16,7 +16,8 @@ mod visuals;
 pub use pipeline::{CacheGet, CachePut, FrameJob, render_document_parallel};
 
 use blend::LinearCanvas;
-use quillon_core::document::{Document, RectElement, Scene};
+use quillon_core::caption::CaptionPosition;
+use quillon_core::document::{Document, RectElement, Scene, TextAlign};
 use quillon_core::evaluate_anim;
 use quillon_core::frame_source::{Frame, FrameSource};
 use quillon_core::time::Tick;
@@ -87,7 +88,7 @@ impl Renderer {
             end: self.doc.total_duration(),
         })?;
         let scene = &self.doc.scenes[scene_idx];
-        let canvas = match scene.crossfade_in() {
+        let mut canvas = match scene.crossfade_in() {
             // During the head of a crossfading scene the previous scene keeps
             // playing (its tracks hold their final values past the end), and
             // the two frames blend per-pixel in premultiplied linear light.
@@ -101,11 +102,88 @@ impl Renderer {
             }
             _ => self.render_scene_canvas(scene_idx, scene, local, src)?,
         };
+        // Captions burn in over the fully composited frame, so a cue is
+        // never blended by a scene transition and always reads on top.
+        self.draw_captions(&mut canvas, tick)?;
         Ok(Frame {
             width: self.doc.size.w,
             height: self.doc.size.h,
             rgba: canvas.into_rgba8(),
         })
+    }
+
+    /// Draw every caption track's active cue onto the canvas (plan §12 v0.5,
+    /// design note D6). Documents without captions take an empty-loop no-op,
+    /// so their pixels — and the golden corpus — are untouched.
+    fn draw_captions(&self, canvas: &mut LinearCanvas, tick: Tick) -> Result<(), RenderError> {
+        for track in &self.doc.captions {
+            let Some(cue) = track.cue_at(tick) else {
+                continue;
+            };
+            let style = &track.style;
+            // Reuse the exact text rasterization path elements use; only the
+            // origin differs (derived from the position, not an author x/y).
+            let el = quillon_core::TextElement {
+                text: cue.text.clone(),
+                font: style.font.clone(),
+                x: 0,
+                y: 0,
+                size: style.size,
+                color: style.color.clone(),
+                align: style.align,
+                shadow: style.shadow.clone(),
+                clip: None,
+                anim: None,
+            };
+            let layer = self.rasterize_text(&el)?;
+            let (w, h) = (self.doc.size.w as f32, self.doc.size.h as f32);
+            let y = match style.position {
+                CaptionPosition::Bottom => h - style.margin as f32 - layer.height as f32,
+                CaptionPosition::Top => style.margin as f32,
+                CaptionPosition::Center => (h - layer.height as f32) / 2.0,
+            };
+            let x = match style.align {
+                TextAlign::Center => (w - layer.width as f32) / 2.0,
+                TextAlign::Left => style.margin as f32,
+                TextAlign::Right => w - style.margin as f32 - layer.width as f32,
+            };
+            if let Some(bg) = &style.bg {
+                // Backing box: the text block plus padding derived from the
+                // font size (0.35 em horizontal, 0.15 em vertical).
+                let (pad_x, pad_y) = (style.size * 0.35, style.size * 0.15);
+                let rect = RectElement {
+                    x: 0,
+                    y: 0,
+                    w: (layer.width as f32 + 2.0 * pad_x).round() as i64,
+                    h: (layer.height as f32 + 2.0 * pad_y).round() as i64,
+                    color: bg.clone(),
+                    gradient: None,
+                    radius: None,
+                    shadow: None,
+                    clip: None,
+                    anim: None,
+                };
+                let box_layer = rasterize_rect(&rect)?;
+                composite(
+                    canvas,
+                    &box_layer,
+                    Placement {
+                        origin: (x - pad_x, y - pad_y),
+                        ..default_placement()
+                    },
+                );
+            }
+            let state = evaluate_anim(None, 0);
+            composite_layer(
+                canvas,
+                &layer,
+                placement((x, y), &state),
+                style.shadow.as_ref(),
+                None,
+                (0.0, 0.0),
+            );
+        }
+        Ok(())
     }
 
     /// Rasterize one scene at a scene-local tick onto a fresh canvas.
@@ -252,6 +330,18 @@ fn placement(origin: (f32, f32), state: &quillon_core::ElementState) -> Placemen
         scale: state.scale,
         rotate_deg: state.rotate_deg,
         opacity: state.opacity,
+    }
+}
+
+/// An unanimated placement for layers that are positioned directly (the
+/// caption backing box).
+fn default_placement() -> Placement {
+    Placement {
+        origin: (0.0, 0.0),
+        translate: (0.0, 0.0),
+        scale: 1.0,
+        rotate_deg: 0.0,
+        opacity: 1.0,
     }
 }
 

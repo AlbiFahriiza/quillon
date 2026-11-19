@@ -92,6 +92,28 @@ impl SessionKeys {
             &mut hasher,
             &serde_json::to_string(&doc.color_space).unwrap_or_default(),
         );
+        // Caption state at this frame (design note v0.5 D7): hash only the
+        // cues active at this tick plus their style and font content, so
+        // editing one cue invalidates only the frames inside that cue —
+        // the same promise scene-scoped keying gives scene edits (§F7).
+        if !doc.captions.is_empty() {
+            let scene_start: i64 = doc.scenes[..scene_idx].iter().map(|s| s.duration).sum();
+            let global_tick = scene_start + local;
+            for track in &doc.captions {
+                if let Some(cue) = track.cue_at(global_tick) {
+                    put_str(
+                        &mut hasher,
+                        &serde_json::to_string(&track.style).unwrap_or_default(),
+                    );
+                    if let Some(hash) = self.asset_hashes.get(&track.style.font) {
+                        hasher.update(hash);
+                    }
+                    put_u64(&mut hasher, cue.from as u64);
+                    put_u64(&mut hasher, cue.to as u64);
+                    put_str(&mut hasher, &cue.text);
+                }
+            }
+        }
         put_scene(&mut hasher, &doc.scenes[scene_idx]);
         put_u64(&mut hasher, local as u64);
         if let (Some(duration), Some(prev)) = (
