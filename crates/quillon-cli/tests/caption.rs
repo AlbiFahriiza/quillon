@@ -24,11 +24,20 @@ fn fixture(name: &str) -> String {
     format!("{FIXTURES}/{name}")
 }
 
-/// Scratch outputs go next to the fixtures so relative asset paths resolve.
-fn scratch(name: &str) -> PathBuf {
+/// A scratch output next to the fixtures (so relative asset paths resolve)
+/// that removes itself when the test ends, keeping the repo clean.
+struct Scratch(PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn scratch(name: &str) -> Scratch {
     let p = PathBuf::from(format!("{FIXTURES}/{name}"));
     let _ = std::fs::remove_file(&p);
-    p
+    Scratch(p)
 }
 
 #[test]
@@ -41,12 +50,12 @@ fn srt_import_appends_a_valid_caption_track() {
         "--doc",
         &fixture("caption-target.json"),
         "-o",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
     ]);
     assert_eq!(code, 0, "stdout: {stdout}, stderr: {stderr}");
-    let (code, stdout, stderr) = run(&["validate", out.to_str().unwrap()]);
+    let (code, stdout, stderr) = run(&["validate", out.0.to_str().unwrap()]);
     assert_eq!(code, 0, "imported doc must validate: {stdout} {stderr}");
-    let body = std::fs::read_to_string(&out).unwrap();
+    let body = std::fs::read_to_string(&out.0).unwrap();
     assert!(body.contains("\"captions\""), "track attached: {body}");
     assert_eq!(body.matches("\"from\"").count(), 2, "two cues: {body}");
 }
@@ -64,10 +73,10 @@ fn srt_round_trip_keeps_timing_exactly() {
         "--doc",
         &fixture("caption-target.json"),
         "-o",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
     ]);
     assert_eq!(code, 0, "{stderr}");
-    let (code, stdout, stderr) = run(&["caption", "export", out.to_str().unwrap()]);
+    let (code, stdout, stderr) = run(&["caption", "export", out.0.to_str().unwrap()]);
     assert_eq!(code, 0, "{stderr}");
     let original = std::fs::read_to_string(fixture("subs.srt")).unwrap();
     let original_timing: Vec<&str> = original.lines().filter(|l| l.contains("-->")).collect();
@@ -89,10 +98,10 @@ fn vtt_import_flows_through_the_same_pipeline() {
         "--doc",
         &fixture("caption-target.json"),
         "-o",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
     ]);
     assert_eq!(code, 0, "{stderr}");
-    let (code, stdout, stderr) = run(&["caption", "export", out.to_str().unwrap()]);
+    let (code, stdout, stderr) = run(&["caption", "export", out.0.to_str().unwrap()]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("VTT cue"), "{stdout}");
     assert!(stdout.contains("00:00:03,000 --> 00:00:04,000"), "{stdout}");
@@ -108,10 +117,10 @@ fn ass_import_takes_dialogue_text_only_and_strips_tags() {
         "--doc",
         &fixture("caption-target.json"),
         "-o",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
     ]);
     assert_eq!(code, 0, "{stderr}");
-    let (code, stdout, stderr) = run(&["caption", "export", out.to_str().unwrap()]);
+    let (code, stdout, stderr) = run(&["caption", "export", out.0.to_str().unwrap()]);
     assert_eq!(code, 0, "{stderr}");
     assert!(stdout.contains("Styled text"), "tags stripped: {stdout}");
     assert!(
@@ -149,10 +158,10 @@ fn import_with_invalid_style_flag_exits_two() {
         "--size",
         "0",
         "-o",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
     ]);
     assert_eq!(code, 2, "the produced document must be refused: {stderr}");
-    assert!(!out.exists(), "an invalid document is not written");
+    assert!(!out.0.exists(), "an invalid document is not written");
 }
 
 #[test]
@@ -178,13 +187,13 @@ fn export_vtt_writes_the_webvtt_header() {
         "--doc",
         &fixture("caption-target.json"),
         "-o",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
     ]);
     assert_eq!(code, 0, "{stderr}");
     let (code, stdout, stderr) = run(&[
         "caption",
         "export",
-        out.to_str().unwrap(),
+        out.0.to_str().unwrap(),
         "--format",
         "vtt",
     ]);
