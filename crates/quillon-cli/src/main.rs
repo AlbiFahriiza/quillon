@@ -843,16 +843,26 @@ fn caption_export(
     });
     match quillon_cli::caption_cmd::export(&doc, track, &format) {
         Ok(subtitles) => match out {
-            Some(path) => match std::fs::write(&path, &subtitles) {
-                Ok(()) => {
-                    println!("wrote {}", path.display());
-                    0
+            Some(path) => {
+                // Same contract as render: an output path inside new
+                // directories just works.
+                if let Some(parent) = path.parent() {
+                    if let Err(err) = std::fs::create_dir_all(parent) {
+                        eprintln!("cannot create {}: {err}", parent.display());
+                        return 1;
+                    }
                 }
-                Err(err) => {
-                    eprintln!("cannot write {}: {err}", path.display());
-                    1
+                match std::fs::write(&path, &subtitles) {
+                    Ok(()) => {
+                        println!("wrote {}", path.display());
+                        0
+                    }
+                    Err(err) => {
+                        eprintln!("cannot write {}: {err}", path.display());
+                        1
+                    }
                 }
-            },
+            }
             None => {
                 print!("{subtitles}");
                 0
@@ -898,16 +908,26 @@ fn write_document(doc: &Document, out: Option<PathBuf>) -> i32 {
         std::process::exit(1);
     });
     match out {
-        Some(path) => match std::fs::write(&path, body + "\n") {
-            Ok(()) => {
-                println!("wrote {}", path.display());
-                0
+        Some(path) => {
+            // Same contract as render: an output path inside new
+            // directories just works.
+            if let Some(parent) = path.parent() {
+                if let Err(err) = std::fs::create_dir_all(parent) {
+                    eprintln!("cannot create {}: {err}", parent.display());
+                    return 1;
+                }
             }
-            Err(err) => {
-                eprintln!("cannot write {}: {err}", path.display());
-                1
+            match std::fs::write(&path, body + "\n") {
+                Ok(()) => {
+                    println!("wrote {}", path.display());
+                    0
+                }
+                Err(err) => {
+                    eprintln!("cannot write {}: {err}", path.display());
+                    1
+                }
             }
-        },
+        }
         None => {
             println!("{body}");
             0
