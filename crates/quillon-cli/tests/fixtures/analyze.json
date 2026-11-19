@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#101418",
+  "audio_rate": 48000,
+  "assets": {
+    "tone": { "type": "audio", "src": "tone.wav" }
+  },
+  "audio": [ { "asset": "tone", "gain": 1.0 } ],
+  "scenes": [
+    { "id": "a", "duration": 705600000, "elements": [] },
+    { "id": "b", "duration": 705600000, "elements": [] }
+  ]
+}

@@ -34,12 +34,15 @@ arch:
     media:
       paths: [crates/quillon-media]
       may: [core]
+    audio:
+      paths: [crates/quillon-audio]
+      may: [core]
     cache:
       paths: [crates/quillon-cache]
       may: [core]
     cli:
       paths: [crates/quillon-cli]
-      may: [core, render, media, cache]
+      may: [core, render, media, cache, audio]
     xtask:
       paths: [crates/xtask]
       may: [core, render]

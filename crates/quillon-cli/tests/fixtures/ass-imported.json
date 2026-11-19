@@ -1,0 +1,43 @@
+{
+  "v": 1,
+  "timebase": 705600000,
+  "size": {
+    "w": 320,
+    "h": 240
+  },
+  "fps": 10,
+  "color_space": "srgb",
+  "bit_depth": 8,
+  "bg": "#101418",
+  "assets": {
+    "body": {
+      "type": "font",
+      "src": "assets/font.ttf"
+    }
+  },
+  "captions": [
+    {
+      "style": {
+        "font": "body",
+        "size": 24.0,
+        "color": "#ffffff",
+        "align": "center",
+        "position": "bottom"
+      },
+      "cues": [
+        {
+          "from": 1764000000,
+          "to": 2469600000,
+          "text": "Styled text"
+        }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "id": "target",
+      "duration": 2822400000,
+      "elements": []
+    }
+  ]
+}

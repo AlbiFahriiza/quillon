@@ -19,6 +19,7 @@ rmcp = { workspace = true }
 base64 = { workspace = true }
 ffmpeg-sidecar = { workspace = true }
 quillon-audio = { workspace = true }
+rsubs-lib = { workspace = true }
 quillon-cache = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

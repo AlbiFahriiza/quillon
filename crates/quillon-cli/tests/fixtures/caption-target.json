@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "size": { "w": 320, "h": 240 },
+  "fps": 10,
+  "bg": "#101418",
+  "assets": {
+    "body": { "type": "font", "src": "assets/font.ttf" }
+  },
+  "scenes": [ { "id": "target", "duration": 2822400000, "elements": [] } ]
+}

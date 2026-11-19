@@ -9,6 +9,10 @@ use quillon_core::document::{AudioTrack, Document};
 use std::collections::BTreeMap;
 use std::path::Path;
 
+pub mod analyze;
+
+pub use analyze::{SegmentLoudness, analyze_segment, silence_ranges};
+
 /// The fixed channel layout of the mix: stereo. Mono sources are copied to
 /// both channels; wider sources contribute their first two channels.
 pub const MIX_CHANNELS: u16 = 2;

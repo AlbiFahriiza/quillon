@@ -13,7 +13,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
-const CORPUS: &[&str] = &["static.json", "anim.json", "text.json", "visuals.json", "caption.json"];
+const CORPUS: &[&str] = &[
+    "static.json",
+    "anim.json",
+    "text.json",
+    "visuals.json",
+    "caption.json",
+];
 
 fn corpus_dir() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/corpus"))

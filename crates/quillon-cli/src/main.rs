@@ -84,6 +84,78 @@ enum Command {
         #[arg(long)]
         root: Option<PathBuf>,
     },
+    /// Import or export caption tracks (plan §12 v0.5).
+    Caption {
+        #[command(subcommand)]
+        action: CaptionAction,
+    },
+    /// Analyze the document's audio mix (plan §12 v0.5).
+    Audio {
+        #[command(subcommand)]
+        action: AudioAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum CaptionAction {
+    /// Attach a subtitle file (.srt/.vtt/.ass/.ssa) as a caption track.
+    Import {
+        subs: PathBuf,
+        /// The document to attach the track to.
+        #[arg(long)]
+        doc: PathBuf,
+        /// Write the captioned document here (default: stdout).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Font asset id for the track (default: the document's first font).
+        #[arg(long)]
+        font: Option<String>,
+        /// Font size in pixels.
+        #[arg(long, default_value_t = 24.0)]
+        size: f32,
+        /// Gap to the canvas edge in pixels.
+        #[arg(long, default_value_t = 48)]
+        margin: i64,
+        /// bottom, center or top.
+        #[arg(long, default_value = "bottom")]
+        position: String,
+        /// Backing box color, e.g. #101418.
+        #[arg(long)]
+        bg: Option<String>,
+        /// Keep the source timing exactly; skip regularization.
+        #[arg(long)]
+        no_regularize: bool,
+    },
+    /// Write a caption track back out as subtitles.
+    Export {
+        doc: PathBuf,
+        /// Write subtitles here (default: stdout).
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        /// Caption track index (default 0).
+        #[arg(long, default_value_t = 0)]
+        track: usize,
+        /// srt or vtt (default: from --out's extension, else srt).
+        #[arg(long)]
+        format: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AudioAction {
+    /// Measure the mix per scene: integrated LUFS, true peak, silence.
+    Analyze {
+        doc: PathBuf,
+        /// Print machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+        /// Silence threshold in dBFS (default -50).
+        #[arg(long, default_value_t = -50.0)]
+        silence_db: f64,
+        /// Shortest silence that counts, in milliseconds (default 500).
+        #[arg(long, default_value_t = 500)]
+        min_silence_ms: u64,
+    },
 }
 
 fn main() {
@@ -114,6 +186,45 @@ fn main() {
         } => render(&doc, &out, format, workers, cache_dir, lufs, json),
         Command::Preview { doc, port } => preview(&doc, port),
         Command::Mcp { root } => quillon_cli::mcp::run(root),
+        Command::Caption { action } => match action {
+            CaptionAction::Import {
+                subs,
+                doc,
+                out,
+                font,
+                size,
+                margin,
+                position,
+                bg,
+                no_regularize,
+            } => caption_import(
+                &subs,
+                &doc,
+                out,
+                &quillon_cli::caption_cmd::ImportFlags {
+                    font,
+                    size,
+                    margin,
+                    position,
+                    bg,
+                },
+                no_regularize,
+            ),
+            CaptionAction::Export {
+                doc,
+                out,
+                track,
+                format,
+            } => caption_export(&doc, out, track, format),
+        },
+        Command::Audio { action } => match action {
+            AudioAction::Analyze {
+                doc,
+                json,
+                silence_db,
+                min_silence_ms,
+            } => audio_analyze(&doc, json, silence_db, min_silence_ms),
+        },
     };
     std::process::exit(code);
 }
@@ -376,6 +487,130 @@ fn render(
         Err(err) => {
             eprintln!("{err}");
             1
+        }
+    }
+}
+
+fn caption_import(
+    subs: &Path,
+    doc_path: &Path,
+    out: Option<PathBuf>,
+    flags: &quillon_cli::caption_cmd::ImportFlags,
+    no_regularize: bool,
+) -> i32 {
+    let doc = match read_document(doc_path) {
+        Ok(doc) => doc,
+        Err(code) => return code,
+    };
+    match quillon_cli::caption_cmd::import(subs, &doc, flags, no_regularize) {
+        Ok(captioned) => {
+            // The result must itself validate — a flag could carry an
+            // invalid size, say — and this document is what gets rendered.
+            let base = doc_path.parent().unwrap_or(Path::new("."));
+            let errors = quillon_core::validate_document(&captioned, base);
+            if !errors.is_empty() {
+                for error in &errors {
+                    eprintln!("{error}");
+                }
+                eprintln!(
+                    "the captioned document would be invalid; fix the flags or the subtitle file"
+                );
+                return 2;
+            }
+            write_document(&captioned, out)
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+fn caption_export(
+    doc_path: &Path,
+    out: Option<PathBuf>,
+    track: usize,
+    format: Option<String>,
+) -> i32 {
+    let doc = match read_document(doc_path) {
+        Ok(doc) => doc,
+        Err(code) => return code,
+    };
+    let format = format.as_deref().map(str::to_string).unwrap_or_else(|| {
+        out.as_ref()
+            .and_then(|p| p.extension().and_then(|e| e.to_str()).map(str::to_string))
+            .unwrap_or_else(|| "srt".to_string())
+    });
+    match quillon_cli::caption_cmd::export(&doc, track, &format) {
+        Ok(subtitles) => match out {
+            Some(path) => match std::fs::write(&path, &subtitles) {
+                Ok(()) => {
+                    println!("wrote {}", path.display());
+                    0
+                }
+                Err(err) => {
+                    eprintln!("cannot write {}: {err}", path.display());
+                    1
+                }
+            },
+            None => {
+                print!("{subtitles}");
+                0
+            }
+        },
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+fn audio_analyze(path: &Path, json: bool, silence_db: f64, min_silence_ms: u64) -> i32 {
+    let doc = match read_document(path) {
+        Ok(doc) => doc,
+        Err(code) => return code,
+    };
+    let base = path.parent().unwrap_or(Path::new("."));
+    match quillon_cli::audio_cmd::analyze(&doc, base, silence_db, min_silence_ms) {
+        Ok(reports) => {
+            if json {
+                let body =
+                    quillon_cli::audio_cmd::json_body(&doc, &reports, silence_db, min_silence_ms);
+                println!("{body}");
+            } else {
+                for line in quillon_cli::audio_cmd::text_lines(&reports, doc.timebase) {
+                    println!("{line}");
+                }
+            }
+            0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            1
+        }
+    }
+}
+
+/// Serialize a document pretty (human-editable) to a file or stdout.
+fn write_document(doc: &Document, out: Option<PathBuf>) -> i32 {
+    let body = serde_json::to_string_pretty(doc).unwrap_or_else(|e| {
+        eprintln!("cannot serialize the document: {e}");
+        std::process::exit(1);
+    });
+    match out {
+        Some(path) => match std::fs::write(&path, body + "\n") {
+            Ok(()) => {
+                println!("wrote {}", path.display());
+                0
+            }
+            Err(err) => {
+                eprintln!("cannot write {}: {err}", path.display());
+                1
+            }
+        },
+        None => {
+            println!("{body}");
+            0
         }
     }
 }
