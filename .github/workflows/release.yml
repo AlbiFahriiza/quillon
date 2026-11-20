@@ -33,11 +33,11 @@ jobs:
           - { target: x86_64-pc-windows-msvc, os: windows-latest, archive: zip }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e9d7b9f1e587218970671bac74e5511ed9506e6a # v2
         with:
           # The runner image is part of the key: a cache saved on
           # ubuntu-latest (glibc 2.43) poisons a ubuntu-22.04 job with
@@ -71,7 +71,7 @@ jobs:
           Compress-Archive -DestinationPath "quillon-${{ matrix.target }}.zip" -Path $staging
           $hash = (Get-FileHash "quillon-${{ matrix.target }}.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  quillon-${{ matrix.target }}.zip" | Out-File -Encoding ascii "quillon-${{ matrix.target }}.zip.sha256"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: quillon-${{ matrix.target }}
           path: |
@@ -83,8 +83,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
           merge-multiple: true
