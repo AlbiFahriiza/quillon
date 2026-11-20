@@ -620,6 +620,33 @@ fn resolve_unchecked(base: &Path, relative: &str) -> PathBuf {
 
 impl QuillonServer {
     fn resolve(&self, relative: &str) -> Result<PathBuf, CallToolResult> {
+        // r2 R2-1: `base.join(path)` REPLACES the base when `path` is
+        // absolute (unix `/x`; Windows `C:\x` or `\\server`), so the `..`
+        // check alone does not confine the caller. Component analysis
+        // catches what the HOST treats as absolute; the textual checks
+        // catch the other platform's shapes on either host, because the
+        // string arrives from the caller, not the filesystem.
+        let path = Path::new(relative);
+        let host_absolute = path.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::Prefix(_) | std::path::Component::RootDir
+            )
+        });
+        let windows_absolute = {
+            let bytes = relative.as_bytes();
+            let drive = bytes.len() >= 2
+                && bytes[0].is_ascii_alphabetic()
+                && (bytes[1] == b':' || bytes[1] == b'|');
+            let unc = relative.starts_with("\\\\") || relative.starts_with("//");
+            drive || unc
+        };
+        if host_absolute || windows_absolute {
+            return Err(step_error(
+                "resolve",
+                format!("path {relative:?} is absolute — pass a path relative to the working root"),
+            ));
+        }
         if relative.split(['/', '\\']).any(|part| part == "..") {
             return Err(step_error(
                 "resolve",
@@ -780,6 +807,60 @@ mod tests {
             .await;
         assert_eq!(result.is_error, Some(true));
         assert!(text_of(&result).contains(".."), "says what was rejected");
+    }
+
+    #[tokio::test]
+    async fn probe_media_rejects_absolute_paths() {
+        // r2 R2-1: `base.join("/etc/passwd")` REPLACES the base on unix
+        // (and `base.join("C:\\x")` does on Windows), so the `..` check
+        // alone does not confine the caller to the working root.
+        let dir = workdir("absolute");
+        let server = QuillonServer::new(dir.clone());
+        for absolute in ["/etc/passwd", "C:\\Windows\\system32", "\\\\server\\share"] {
+            let result = server
+                .probe_media(Parameters(ProbeInput {
+                    path: absolute.into(),
+                }))
+                .await;
+            assert_eq!(
+                result.is_error,
+                Some(true),
+                "{absolute:?} must be rejected, not joined over the base"
+            );
+            assert!(
+                text_of(&result).contains("absolute"),
+                "names the problem for {absolute:?}: {}",
+                text_of(&result)
+            );
+        }
+        // A legal relative path still resolves (probe of a real media file;
+        // a junk file would fail the probe for content reasons, not path
+        // reasons, and muddy the assertion).
+        let tiny_mp4 = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=64x64:d=0.2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-y",
+            ])
+            .arg(dir.join("clip.mp4"))
+            .output()
+            .expect("spawn ffmpeg");
+        assert!(tiny_mp4.status.success(), "ffmpeg fixture");
+        let ok = server
+            .probe_media(Parameters(ProbeInput {
+                path: "clip.mp4".into(),
+            }))
+            .await;
+        assert_eq!(ok.is_error, Some(false));
     }
 
     #[tokio::test]
