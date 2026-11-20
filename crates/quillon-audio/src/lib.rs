@@ -248,10 +248,30 @@ pub fn resample(input: &DecodedAudio, to_rate: u32) -> Result<DecodedAudio, Audi
 }
 
 /// Tick → sample index at the document rate (exact: the validator only
-/// accepts rates that divide the timebase).
+/// accepts rates that divide the timebase). Wraps when `tick * rate`
+/// exceeds i64 — callers that face extreme durations use
+/// [`tick_to_sample_checked`] instead (r3 F4).
 pub fn tick_to_sample(tick: i64, rate: u32, timebase: i64) -> i64 {
     tick * i64::from(rate) / timebase
 }
+
+/// [`tick_to_sample`] with the overflow named instead of wrapped (r3 F4):
+/// a valid 24 h document at 192 kHz overflows the i64 product and used to
+/// come back as a negative sample count.
+pub fn tick_to_sample_checked(tick: i64, rate: u32, timebase: i64) -> Result<i64, String> {
+    match (tick as i128 * i128::from(rate) / timebase as i128).try_into() {
+        Ok(sample) => Ok(sample),
+        Err(_) => Err(format!(
+            "{tick} ticks at {rate} Hz does not fit the sample index range"
+        )),
+    }
+}
+
+/// r3 F4: the whole-mix buffer is a flat allocation; past this many
+/// interleaved samples the mix is refused by name instead of attempted
+/// (2^32 f32 stereo ≈ 34 GB — generous for real work, bounded against a
+/// 24 h @ 192 kHz document whose mix would need 132 GB).
+pub const MAX_MIX_SAMPLES: usize = 1 << 32;
 
 /// Mix every document audio track into one stereo buffer at the document's
 /// rate. `sources` must already be resampled to `doc.audio_rate` (see
@@ -261,8 +281,23 @@ pub fn mix_document(
     sources: &BTreeMap<String, DecodedAudio>,
 ) -> Result<DecodedAudio, AudioError> {
     let rate = doc.audio_rate;
-    let total_samples = tick_to_sample(doc.total_duration(), rate, doc.timebase).max(0) as usize
+    // r3 F4: the conversion is checked, and the flat mix buffer is
+    // refused past MAX_MIX_SAMPLES rather than allocated.
+    let total_samples = tick_to_sample_checked(doc.total_duration(), rate, doc.timebase)
+        .map_err(|reason| AudioError::Decode {
+            path: "<mix>".into(),
+            reason,
+        })?
+        .max(0) as usize
         * MIX_CHANNELS as usize;
+    if total_samples > MAX_MIX_SAMPLES {
+        return Err(AudioError::Decode {
+            path: "<mix>".into(),
+            reason: format!(
+                "the mix would need {total_samples} interleaved samples; the limit is {MAX_MIX_SAMPLES} — lower the document duration or audio rate"
+            ),
+        });
+    }
     let mut mix = vec![0.0f32; total_samples];
 
     for track in &doc.audio {
@@ -673,5 +708,52 @@ mod r2_cap_tests {
         assert_eq!(decoded.rate, 48_000);
         assert_eq!(decoded.samples.len(), 9600);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod r3_mix_tests {
+    use super::*;
+
+    #[test]
+    fn r3_tick_to_sample_is_exact_where_it_fits_and_named_where_it_does_not() {
+        // The old i64 multiply panicked in debug builds for a valid
+        // 24 h @ 192 kHz document (r3 F4) — 24 h of flicks times 192_000
+        // exceeds i64::MAX. The checked variant computes it in i128 and
+        // comes back exact:
+        let day: i64 = 24 * 60 * 60 * 705_600_000;
+        let checked = tick_to_sample_checked(day, 192_000, 705_600_000)
+            .expect("24 h @ 192 kHz fits i64 when computed in i128");
+        assert_eq!(checked, 16_588_800_000);
+        // Values that fit stay exact.
+        assert_eq!(
+            tick_to_sample_checked(705_600_000, 48_000, 705_600_000).unwrap(),
+            48_000
+        );
+    }
+
+    #[test]
+    fn r3_mix_refuses_the_uncapped_allocation_by_name() {
+        // A 24 h @ 192 kHz document is valid per the validator but its
+        // flat stereo mix would need ~132 GB; the mix must refuse with a
+        // named error instead of attempting the allocation.
+        use quillon_core::builder::DocumentBuilder;
+        use quillon_core::document::{Scene, Size};
+        let mut doc = DocumentBuilder::new(Size { w: 64, h: 64 }).build();
+        doc.audio_rate = 192_000;
+        doc.scenes = vec![Scene {
+            id: "long".into(),
+            duration: 24 * 60 * 60 * 705_600_000,
+            transition_in: None,
+            elements: Vec::new(),
+        }];
+        let sources = BTreeMap::new();
+        let result = mix_document(&doc, &sources);
+        match result {
+            Err(AudioError::Decode { reason, .. }) => {
+                assert!(reason.contains("limit"), "names the limit: {reason}")
+            }
+            other => panic!("the uncapped mix must be refused, got {other:?}"),
+        }
     }
 }

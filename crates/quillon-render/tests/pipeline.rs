@@ -106,3 +106,27 @@ fn parallel_pipeline_matches_sequential_frames_in_order() {
         );
     }
 }
+
+#[test]
+fn r3_zero_fps_is_a_named_error_not_a_divide_by_zero() {
+    // R3-F3: frame_tick(fps) divides by fps, and the pipeline called it
+    // before its own `frame <= 0` guard — a Document built through the
+    // library (no validator) with fps 0 panicked. Watched failing first.
+    let base = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/corpus"));
+    let mut doc = doc();
+    doc.fps = 0;
+    let result = render_document_parallel(
+        &doc,
+        base,
+        1,
+        std::sync::Arc::new(quillon_core::NullFrameSource),
+        None,
+        None,
+    );
+    match result {
+        Err(err) => assert!(err.to_string().contains("fps"), "names the problem: {err}"),
+        // A pipeline that started would hang the test on recv; any
+        // success is the bug it is.
+        Ok(_) => panic!("fps 0 must not start a pipeline"),
+    }
+}

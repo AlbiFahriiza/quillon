@@ -34,13 +34,18 @@ runs in CI on every platform.
 | Preview encode failures (r2 R2-5) | a failed draft PNG encode prints to stderr and the sample is skipped — never a silent zero-byte frame | `preview.rs` |
 | Whisper staging file (r2 R2-6) | the `.part` download stage carries a pid+nanos suffix (the r1 F5 pattern), so a pre-planted symlink cannot predict it | `transcribe.rs` |
 | Installer (r2 R2-7) | the binary lands via a staging copy + rename, so a racing or interrupted install cannot leave a half-written `~/.local/bin/quillon` | `installer.sh` |
-| CI supply chain (r2 R2-8) | every workflow `uses:` is pinned to the commit SHA its tag resolved to on 2026-11-20 | `.github/workflows/*.yml` |
+| CI supply chain (r2 R2-8) | every workflow `uses:` is pinned to the commit SHA its tag resolved to on 2026-11-20 | `.github/workflows/*.yml` (branch `hardening/r2-workflows`) |
+| Subtitle timestamps (r3 F1, F2) | the hours field is capped at 100 (minutes, seconds and milliseconds always were checked) and the ms→tick conversion is checked — a crafted giant-hours file is a named error, not an overflow panic | `subtitle.rs` `r3_timestamp_tests` |
+| Zero-fps pipeline start (r3 F3) | `fps == 0` is refused before `frame_tick` divides — a library-built Document can no longer panic the pipeline | `pipeline.rs` `r3_zero_fps_is_a_named_error_not_a_divide_by_zero` |
+| Sample conversion and mix size (r3 F4) | tick→sample is computed in i128 (a valid 24 h @ 192 kHz document used to wrap negative) and the flat mix buffer is refused past 2^32 interleaved samples | `quillon-audio` `r3_mix_tests` |
 
 ## The limits, in one place
 
 - `MAX_CSV_ROWS = 1_000_000` data rows (`quillon-cli/src/csv.rs`)
 - `MAX_TEXT_FILE_BYTES = 64 MiB` for documents, OTIO and subtitle files; `MAX_CSV_FILE_BYTES = 512 MiB` for mail-merge data (`quillon-cli/src/read_capped.rs`, r2 R2-2)
 - `MAX_DECODED_SAMPLES = 2^31` interleaved f32 (~8 GiB, ~6 h stereo at 48 kHz) (`quillon-audio/src/lib.rs`, r2 R2-3)
+- `MAX_MIX_SAMPLES = 2^32` interleaved f32 (~34 GB stereo) (`quillon-audio/src/lib.rs`, r3 F4)
+- `MAX_TIMESTAMP_HOURS = 100` per subtitle timestamp (`quillon-core/src/subtitle.rs`, r3 F1)
 - `MAX_SCENE_DURATION_TICKS = MAX_DOCUMENT_DURATION_TICKS = 24 h` (`quillon-core/src/lib.rs`, r1 F1)
 - `MAX_ELEMENT_GEOMETRY = ±30 720 px` for element and clip x/y/w/h (r1 F9)
 - `MAX_PARSED_CUES = 5_000`, `MAX_CUE_TEXT_BYTES = 10 000` per subtitle file (r1 F2)
@@ -71,3 +76,21 @@ Guards confine untrusted input (documents, CSV rows, OTIO files,
 cache files). They never second-guess paths and values the user typed
 on their own command line: an absolute `--out`, a `..` in a pattern
 the user wrote, or `--allow-lint` are the user's calls to make.
+
+## The three hardening rounds
+
+| Round | PR / branch | Focus | Closed | Tests |
+| --- | --- | --- | --- | --- |
+| 1 | PR #1, `hardening/r1` | first audit: durations, geometry, subtitle volume, OTIO sums, MCP render caps, temp dirs, download/flag guards | F1–F9 | 302 → 313 |
+| 2 | PR #2, `hardening/r2-core` | areas R1 left untouched: import read ceilings, MCP path confinement, decode caps, render-cap regression, installer/workflow hygiene | R2-1–R2-7 (R2-8 on `hardening/r2-workflows`, blocked on a `workflow`-scoped token) | 313 → 322 |
+| 3 | `hardening/r3` | cross-verification of the r1/r2 guards plus the core modules both rounds left alone: timestamp arithmetic, pipeline start, sample conversion, mix size | R3-F1–F4 (R3-F5 documented as defense-in-depth) | 322 → 329 |
+
+Method, fixed across the rounds: a 30-minute timed review with a
+Python timer, a master plan committed as the goal, watch-it-fail
+regression tests, checkpoint commits per finding, and the full
+battery (`cargo test --workspace`, `clippy -D warnings`, `fmt
+--check`, unchanged golden hashes) green after every step. The
+cross-verification pass in round 3 probed the r1/r2 guards for
+bypasses (path shapes, cap arithmetic) and re-ran the 100k-input
+fuzz locally; no regression survived.
+
