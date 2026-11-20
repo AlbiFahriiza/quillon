@@ -61,8 +61,13 @@ fetch "${base}/${archive}.sha256" "${tmp}/${archive}.sha256"
 
 mkdir -p "$DEST"
 tar -xzf "${tmp}/${archive}" -C "$tmp"
-cp "${tmp}/quillon-${target}/quillon" "$DEST/quillon"
-chmod +x "$DEST/quillon"
+# r2 R2-7: install atomically — copy to a staging name beside the target,
+# then rename over it. Two concurrent installs (or a Ctrl-C mid-copy) can
+# otherwise leave a half-written binary at $DEST/quillon.
+staging="$DEST/quillon.new.$$"
+cp "${tmp}/quillon-${target}/quillon" "$staging"
+chmod +x "$staging"
+mv -f "$staging" "$DEST/quillon"
 
 echo "installed: $DEST/quillon ($tag, $target)"
 case ":${PATH}:" in
