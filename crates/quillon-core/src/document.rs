@@ -533,9 +533,14 @@ fn is_default_audio_rate(rate: &u32) -> bool {
 }
 
 impl Document {
-    /// Total duration in ticks (sum of scene durations).
+    /// Total duration in ticks (sum of scene durations). Saturating:
+    /// validation bounds each scene and the document total, so the sum
+    /// cannot overflow for a validated document; anything else saturates
+    /// instead of panicking (hardening r1 F1).
     pub fn total_duration(&self) -> i64 {
-        self.scenes.iter().map(|s| s.duration).sum()
+        self.scenes
+            .iter()
+            .fold(0i64, |acc, s| acc.saturating_add(s.duration))
     }
 
     /// Scene index containing `tick`, and the tick relative to the scene
@@ -543,10 +548,11 @@ impl Document {
     pub fn scene_at(&self, tick: i64) -> Option<(usize, i64)> {
         let mut start = 0i64;
         for (i, scene) in self.scenes.iter().enumerate() {
-            if tick < start + scene.duration {
+            let end = start.saturating_add(scene.duration);
+            if tick < end {
                 return Some((i, tick - start));
             }
-            start += scene.duration;
+            start = end;
         }
         None
     }

@@ -73,11 +73,14 @@ struct Bbox {
 
 impl Bbox {
     fn rect(x: i64, y: i64, w: i64, h: i64) -> Bbox {
+        // f64 first: i64 coordinates near the type's edges would overflow
+        // in `x + w` before the cast, and lint must never panic on caller
+        // data (hardening r1 F9).
         Bbox {
-            left: x as f32,
-            top: y as f32,
-            right: (x + w) as f32,
-            bottom: (y + h) as f32,
+            left: x as f64 as f32,
+            top: y as f64 as f32,
+            right: (x as f64 + w as f64) as f32,
+            bottom: (y as f64 + h as f64) as f32,
         }
     }
 }
@@ -161,8 +164,12 @@ fn lint_caption_collisions(doc: &Document, findings: &mut Vec<LintFinding>) {
 
 /// Does scene `si`'s time span overlap the half-open tick range [from, to)?
 fn scene_overlaps_cue(doc: &Document, si: usize, from: i64, to: i64) -> bool {
-    let start: i64 = doc.scenes[..si].iter().map(|s| s.duration).sum();
-    let end = start + doc.scenes[si].duration;
+    // Saturating matches Document::total_duration's contract; validated
+    // documents cannot reach the saturation point (r1 F1).
+    let start: i64 = doc.scenes[..si]
+        .iter()
+        .fold(0i64, |acc, s| acc.saturating_add(s.duration));
+    let end = start.saturating_add(doc.scenes[si].duration);
     start < to && end > from
 }
 

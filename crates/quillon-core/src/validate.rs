@@ -17,10 +17,10 @@ use crate::document::{Anim, Asset, Document, Element, Scene, Track};
 use crate::schema::document_schema;
 use crate::{
     DOCUMENT_VERSION, MAX_ASSETS, MAX_AUDIO_RATE, MAX_AUDIO_TRACKS, MAX_BLUR_PX,
-    MAX_CAPTION_TRACKS, MAX_CUES_PER_TRACK, MAX_DIMENSION, MAX_ELEMENTS_PER_SCENE,
-    MAX_FADES_PER_TRACK, MAX_FPS, MAX_GAIN, MAX_GRADIENT_STOPS, MAX_ID_LEN, MAX_KEYS_PER_TRACK,
-    MAX_RADIUS_PX, MAX_SCENES, MAX_SPEED, MAX_TEXT_LEN, MAX_TEXT_SIZE, MIN_AUDIO_RATE,
-    MIN_DIMENSION, time,
+    MAX_CAPTION_TRACKS, MAX_CUES_PER_TRACK, MAX_DIMENSION, MAX_DOCUMENT_DURATION_TICKS,
+    MAX_ELEMENT_GEOMETRY, MAX_ELEMENTS_PER_SCENE, MAX_FADES_PER_TRACK, MAX_FPS, MAX_GAIN,
+    MAX_GRADIENT_STOPS, MAX_ID_LEN, MAX_KEYS_PER_TRACK, MAX_RADIUS_PX, MAX_SCENE_DURATION_TICKS,
+    MAX_SCENES, MAX_SPEED, MAX_TEXT_LEN, MAX_TEXT_SIZE, MIN_AUDIO_RATE, MIN_DIMENSION, time,
 };
 use jsonschema::validator_for;
 use serde::{Deserialize, Serialize};
@@ -100,6 +100,30 @@ pub fn validate_document(doc: &Document, base_dir: &Path) -> Vec<ValidationError
     validate_audio(doc, &mut errors);
     validate_captions(doc, &mut errors);
     validate_scenes(doc, &mut errors);
+    // Checked on top of the per-scene bound: the total feeds every
+    // consumer of total_duration() (allocations, frame counts), and a
+    // builder-assembled document can bypass the scene walker.
+    if let Some(total) = doc
+        .scenes
+        .iter()
+        .try_fold(0i64, |acc, s| acc.checked_add(s.duration))
+    {
+        if total > MAX_DOCUMENT_DURATION_TICKS {
+            errors.push(ValidationError::new(
+                "/scenes",
+                "document-duration",
+                format!(
+                    "the scenes add up to {total} ticks, above the {MAX_DOCUMENT_DURATION_TICKS}-tick (24 h) document limit"
+                ),
+            ));
+        }
+    } else {
+        errors.push(ValidationError::new(
+            "/scenes",
+            "document-duration",
+            "the scene durations overflow the timeline; keep each scene and the total within 24 h",
+        ));
+    }
     errors
 }
 
@@ -268,11 +292,14 @@ fn validate_scene<'a>(
             format!("scene id \"{}\" is used more than once", scene.id),
         ));
     }
-    if scene.duration <= 0 {
+    if scene.duration <= 0 || scene.duration > MAX_SCENE_DURATION_TICKS {
         errors.push(ValidationError::new(
             format!("{base}/duration"),
             "scene-duration",
-            "scene duration must be a positive number of ticks",
+            format!(
+                "scene duration must be 1..={MAX_SCENE_DURATION_TICKS} ticks (24 h), got {}",
+                scene.duration
+            ),
         ));
     }
     validate_transition(scene, base, is_first, errors);
@@ -404,6 +431,7 @@ fn validate_rect(r: &crate::document::RectElement, path: &str, errors: &mut Vec<
             "rectangle width and height must be at least 1",
         ));
     }
+    push_geometry_errors(r.x, r.y, r.w, r.h, path, "rect", errors);
     push_color_error(&r.color, &format!("{path}/color"), errors);
     if let Some(g) = &r.gradient {
         validate_gradient(g, &format!("{path}/gradient"), errors);
@@ -490,6 +518,33 @@ fn validate_clip(c: &crate::document::ClipRect, path: &str, errors: &mut Vec<Val
             "clip width and height must be at least 1",
         ));
     }
+    push_geometry_errors(c.x, c.y, c.w, c.h, path, "clip", errors);
+}
+
+/// Element and clip geometry bound (r1 F9): coordinates this large are
+/// permanently off-screen, and unchecked `x + w` combinations overflow
+/// i64 in the lint and compositing paths.
+fn push_geometry_errors(
+    x: i64,
+    y: i64,
+    w: i64,
+    h: i64,
+    path: &str,
+    kind: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    let limit = MAX_ELEMENT_GEOMETRY;
+    for (name, value) in [("x", x), ("y", y), ("w", w), ("h", h)] {
+        if !(-limit..=limit).contains(&value) {
+            errors.push(ValidationError::new(
+                format!("{path}/{name}"),
+                "geometry",
+                format!(
+                    "{kind} {name} must be within -{limit}..={limit} pixels (four times the widest canvas), got {value}"
+                ),
+            ));
+        }
+    }
 }
 
 fn validate_image(
@@ -505,6 +560,7 @@ fn validate_image(
             "image width and height must be at least 1",
         ));
     }
+    push_geometry_errors(img.x, img.y, img.w, img.h, path, "image", errors);
     if let Some(s) = &img.shadow {
         validate_shadow(s, &format!("{path}/shadow"), errors);
     }
@@ -541,6 +597,7 @@ fn validate_video(
             "video width and height must be at least 1",
         ));
     }
+    push_geometry_errors(v.x, v.y, v.w, v.h, path, "video", errors);
     if let Some(range) = &v.source_range {
         push_source_range_error(range, &format!("{path}/source_range"), errors);
     }

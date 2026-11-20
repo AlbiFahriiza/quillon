@@ -154,10 +154,21 @@ pub fn fill_gradient_mask(
 /// them where alpha is 0.
 pub fn apply_clip(layer: &mut RgbaLayer, clip: ClipRect, offset: (f32, f32)) {
     let (ox, oy) = (offset.0.round() as i64, offset.1.round() as i64);
-    let x0 = (clip.x + ox).max(0);
-    let y0 = (clip.y + oy).max(0);
-    let x1 = (clip.x + ox + clip.w).min(layer.width as i64);
-    let y1 = (clip.y + oy + clip.h).min(layer.height as i64);
+    // Saturating adds: geometry is bounded by validation, but the renderer
+    // is also reachable with unvalidated documents (library use) and must
+    // not panic there (r1 F9).
+    let x0 = clip.x.saturating_add(ox).max(0);
+    let y0 = clip.y.saturating_add(oy).max(0);
+    let x1 = clip
+        .x
+        .saturating_add(ox)
+        .saturating_add(clip.w)
+        .min(layer.width as i64);
+    let y1 = clip
+        .y
+        .saturating_add(oy)
+        .saturating_add(clip.h)
+        .min(layer.height as i64);
     for y in 0..layer.height as i64 {
         for x in 0..layer.width as i64 {
             if x < x0 || y < y0 || x >= x1 || y >= y1 {
