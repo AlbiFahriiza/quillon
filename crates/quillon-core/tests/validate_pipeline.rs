@@ -926,3 +926,112 @@ fn caption_unknown_style_field_is_rejected() {
         "typo fields must be rejected, got {joined}"
     );
 }
+
+#[test]
+fn scene_duration_over_the_cap_is_a_named_error() {
+    // r1 F1: three legal-per-old-rules scenes whose sum overflows i64
+    // panicked `inspect` via total_duration(). The bound must name the
+    // limit and the offending value instead.
+    let half = (i64::MAX - 1) / 2;
+    let json = format!(
+        r##"{{
+            "v": 1,
+            "size": {{"w": 320, "h": 240}},
+            "scenes": [
+                {{"id": "a", "duration": {half}, "elements": []}},
+                {{"id": "b", "duration": {half}, "elements": []}},
+                {{"id": "c", "duration": {half}, "elements": []}}
+            ]
+        }}"##
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "scene-duration" && e.path == "/scenes/0/duration"),
+        "each over-cap scene is named: {errors:?}"
+    );
+}
+
+#[test]
+fn document_total_over_the_cap_is_a_named_error() {
+    // r1 F1: scenes within the per-scene cap can still sum past the
+    // document cap; the total must be checked with a named error too.
+    let day = quillon_core::MAX_SCENE_DURATION_TICKS;
+    let json = format!(
+        r##"{{
+            "v": 1,
+            "size": {{"w": 320, "h": 240}},
+            "scenes": [
+                {{"id": "a", "duration": {day}, "elements": []}},
+                {{"id": "b", "duration": {day}, "elements": []}}
+            ]
+        }}"##
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "document-duration" && e.path == "/scenes"),
+        "the document total is bounded: {errors:?}"
+    );
+}
+
+#[test]
+fn element_geometry_over_the_cap_is_a_named_error() {
+    // r1 F9: w/h at i64::MAX passed the old checks and panicked the lint
+    // bbox math; the geometry bound must name the field.
+    let json = valid_json().replace(
+        r#"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 64, "h": 64 }"#,
+        r#"{ "type": "image", "asset": "img", "x": 16, "y": 16, "w": 9223372036854775807, "h": 64 }"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "geometry" && e.path == "/scenes/0/elements/1/w"),
+        "huge geometry is a named error: {errors:?}"
+    );
+}
+
+#[test]
+fn clip_geometry_over_the_cap_is_a_named_error() {
+    let json = valid_json().replace(
+        r#"{ "type": "text", "text": "Quillon", "font": "f", "x": 160, "y": 120, "size": 24.0 }"#,
+        r#"{ "type": "text", "text": "Quillon", "font": "f", "x": 160, "y": 120, "size": 24.0,
+             "clip": { "x": 0, "y": -9223372036854775808, "w": 10, "h": 10 } }"#,
+    );
+    let errors = errors_for(&json);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.code == "geometry" && e.path == "/scenes/0/elements/0/clip/y"),
+        "clip geometry is bounded: {errors:?}"
+    );
+}
+
+#[test]
+fn total_duration_saturates_instead_of_panicking_on_unvalidated_docs() {
+    // The renderer is a library too: an unvalidated document with huge
+    // durations must produce a saturated total, never a panic (r1 F1
+    // defense in depth).
+    let half = (i64::MAX - 1) / 2;
+    let doc = quillon_core::DocumentBuilder::new(quillon_core::document::Size { w: 320, h: 240 })
+        .scene(quillon_core::document::Scene {
+            id: "a".into(),
+            duration: half,
+            transition_in: None,
+            elements: Vec::new(),
+        })
+        .scene(quillon_core::document::Scene {
+            id: "b".into(),
+            duration: half,
+            transition_in: None,
+            elements: Vec::new(),
+        })
+        .build();
+    // half = (i64::MAX - 1) / 2, so half + half = i64::MAX - 1 exactly:
+    // no saturation reached, but the point is no panic.
+    assert_eq!(doc.total_duration(), i64::MAX - 1);
+    assert_eq!(doc.scene_at(i64::MAX - 1), None);
+}

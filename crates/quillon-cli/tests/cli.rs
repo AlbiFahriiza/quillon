@@ -286,3 +286,30 @@ fn render_with_cache_dir_all_hits_on_second_run() {
     assert_eq!(first, second, "manifests must be identical");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn silence_db_nan_is_a_named_error() {
+    // r1 F7: a NaN threshold can never mean anything.
+    let (code, _stdout, stderr) = run(&[
+        "audio",
+        "analyze",
+        &fixture("valid.json"),
+        "--silence-db",
+        "NaN",
+    ]);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(stderr.contains("finite"), "{stderr}");
+}
+
+#[test]
+fn min_silence_ms_zero_is_a_named_error() {
+    let (code, _stdout, stderr) = run(&[
+        "audio",
+        "analyze",
+        &fixture("valid.json"),
+        "--min-silence-ms",
+        "0",
+    ]);
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(stderr.contains("1..=3600000"), "{stderr}");
+}

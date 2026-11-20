@@ -243,9 +243,20 @@ pub fn mux_document_audio(
             Err(err) => return Err(format!("cannot normalize loudness: {err}")),
         }
     }
-    let temp_dir = std::env::temp_dir().join(format!("quillon-mux-{}", std::process::id()));
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|err| format!("cannot create a temp dir for muxing: {err}"))?;
+    // r1 F5: unpredictable name (pid + nanos) so a pre-planted symlink in a
+    // shared temp dir cannot predict the path; create_dir fails if something
+    // is already there, which is exactly what we want.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_dir = std::env::temp_dir().join(format!("quillon-mux-{}-{nanos}", std::process::id()));
+    std::fs::create_dir(&temp_dir).map_err(|err| {
+        format!(
+            "cannot create a fresh temp dir for muxing at {}: {err}",
+            temp_dir.display()
+        )
+    })?;
     let wav = temp_dir.join("audio.wav");
     let video_tmp = temp_dir.join("video.mp4");
     quillon_audio::write_wav(&wav, &mix.samples, mix.channels, mix.rate)

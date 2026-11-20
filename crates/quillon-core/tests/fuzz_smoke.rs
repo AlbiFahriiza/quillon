@@ -58,8 +58,15 @@ fn random_json(rng: &mut Rng, depth: u32) -> serde_json::Value {
         return match rng.below(7) {
             0 => json!(null),
             1 => json!(rng.below(2) == 0),
-            2 => json!((rng.next() as i64) - (1 << 40)), // large / negative
-            3 => json!(rng.next() as f64 / 65536.0),     // fractional, also NaN-free
+            2 => match rng.below(4) {
+                // Mix "large" with "near the type bounds" so the r1
+                // duration/geometry caps are exercised too.
+                0 => json!((rng.next() as i64) - (1 << 40)),
+                1 => json!(i64::MAX - rng.below(4) as i64),
+                2 => json!(i64::MIN + rng.below(4) as i64),
+                _ => json!(rng.below(400) as i64 * 705_600_000),
+            },
+            3 => json!(rng.next() as f64 / 65536.0), // fractional, also NaN-free
             4 => json!(random_string(rng, 12)),
             5 => json!(rng.next()), // u64 magnitude
             _ => json!(random_string(rng, 3)),

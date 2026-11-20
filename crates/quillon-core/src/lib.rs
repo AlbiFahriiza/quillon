@@ -34,8 +34,8 @@ pub use frame_source::{Frame, FrameSource, MediaError, NullFrameSource};
 pub use lint::{LintFinding, lint_document};
 pub use otio::{OtioError, import_otio, subset_warnings};
 pub use subtitle::{
-    RegularizeConfig, SubtitleError, ms_to_ticks, parse_srt, parse_vtt, regularize_cues,
-    ticks_to_ms, to_srt, to_vtt,
+    MAX_CUE_TEXT_BYTES, MAX_PARSED_CUES, RegularizeConfig, SubtitleError, ms_to_ticks, parse_srt,
+    parse_vtt, regularize_cues, ticks_to_ms, to_srt, to_vtt,
 };
 pub use template::{TemplateError, VariableDef, VariableType, apply_template_json, fill_pattern};
 pub use validate::{ValidationError, validate_document, validate_str};
@@ -76,3 +76,17 @@ pub const MAX_FADES_PER_TRACK: usize = 64;
 pub const MAX_CAPTION_TRACKS: usize = 8;
 /// Most cues accepted on one caption track.
 pub const MAX_CUES_PER_TRACK: usize = 5_000;
+/// Longest accepted scene duration, in ticks (24 h at the flicks
+/// timebase). A scene is a frame of creative work; anything longer is a
+/// mistake or a resource attack, and unchecked sums over many such
+/// scenes overflow i64 (hardening r1 F1).
+pub const MAX_SCENE_DURATION_TICKS: i64 = 24 * 60 * 60 * time::FLICKS_PER_SECOND;
+/// Longest accepted whole-document duration, in ticks (24 h). Bounds
+/// every consumer of `total_duration()` (allocations, frame counts)
+/// before they are computed.
+pub const MAX_DOCUMENT_DURATION_TICKS: i64 = 24 * 60 * 60 * time::FLICKS_PER_SECOND;
+/// Largest accepted element or clip geometry coordinate magnitude, in
+/// pixels: four times the widest accepted canvas. Elements farther out
+/// are permanently off-screen; geometry this large also overflows i64
+/// when combined (`x + w`) in lint and compositing math (r1 F9).
+pub const MAX_ELEMENT_GEOMETRY: i64 = 4 * 7680;

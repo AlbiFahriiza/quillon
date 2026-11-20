@@ -20,10 +20,20 @@ runs in CI on every platform.
 | Render misuse | `--workers 0` and a directory as the output path are named errors before anything is written | CLI `zero_workers_...`, `a_directory_as_the_output_path_...` |
 | Output writing | `otio import` and `caption export` create the output's parent directory, same contract as `render` | `tests/contract.rs` |
 | CLI exit codes | table-locked: 0 success · 1 operational · 2 invalid document · 3 lint findings; `--json` stdout always parses on success | `tests/contract.rs` |
+| Scene and document durations (r1 F1) | per-scene and total capped at 24 h in ticks with named errors; `total_duration`/`scene_at` saturate for library use | `validate_pipeline.rs` duration tests |
+| Element and clip geometry (r1 F9) | x/y/w/h bounded to ±4x the widest canvas; lint bbox and clip math are overflow-proof (f64/saturating) | `validate_pipeline.rs` geometry tests |
+| Subtitle files (r1 F2) | ≤ 5000 cues and ≤ 10 kB per cue at the SRT/VTT/ASS read boundary, before regularization runs | `subtitle.rs` `r1_caps_tests` |
+| OTIO ranges (r1 F3) | `start + duration` checked on video and audio paths; overflow is a named error | `otio.rs` `start_plus_duration_overflow_is_a_named_error` |
+| MCP renders (r1 F4) | ≤ 2 concurrent renders, registry pruned to the 32 newest (never a live run) | `mcp.rs` |
+| Mux temp dir (r1 F5) | unpredictable pid+nanos name; refuses an existing path (symlink pre-planting) | `render_doc.rs` |
+| Download and flags (r1 F6, F7) | whisper download has a 30 s connect timeout; `--silence-db` rejects NaN/inf, `--min-silence-ms` bounded 1..=3 600 000 | `cli.rs` flag tests |
 
 ## The limits, in one place
 
 - `MAX_CSV_ROWS = 1_000_000` data rows (`quillon-cli/src/csv.rs`)
+- `MAX_SCENE_DURATION_TICKS = MAX_DOCUMENT_DURATION_TICKS = 24 h` (`quillon-core/src/lib.rs`, r1 F1)
+- `MAX_ELEMENT_GEOMETRY = ±30 720 px` for element and clip x/y/w/h (r1 F9)
+- `MAX_PARSED_CUES = 5_000`, `MAX_CUE_TEXT_BYTES = 10 000` per subtitle file (r1 F2)
 - `MAX_FIELD_BYTES = 1 MiB` per CSV field (same file)
 - Document bounds (scenes, elements, assets, dimensions, fps, text
   length, …) live in `quillon-core/src/lib.rs` (`MAX_*` constants) and

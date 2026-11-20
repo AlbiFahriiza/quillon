@@ -39,7 +39,9 @@ pub fn analyze(
     let mut reports = Vec::new();
     let mut start = 0i64;
     for scene in &doc.scenes {
-        let end = start + scene.duration;
+        // Saturating: validated documents stay far below i64, and analyze
+        // must not panic on any input (r1 F1).
+        let end = start.saturating_add(scene.duration);
         let from_sample = (tick_to_sample(start, mix.rate, doc.timebase) as usize) * channels;
         let to_sample = ((tick_to_sample(end, mix.rate, doc.timebase) as usize) * channels)
             .min(mix.samples.len());
