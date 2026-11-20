@@ -106,11 +106,13 @@ pub fn ensure_model(path: &Path) -> Result<(), AudioError> {
     let tmp = path.with_extension(format!("part-{}-{nanos}", std::process::id()));
     // r1 F6: a stalled server must not hang transcription forever; bound
     // the connect phase (the body read stays streaming for the ~75 MB).
-    // ureq 3.x takes Option<Duration> here.
-    let agent = ureq::Agent::config_builder()
-        .timeout_connect(Some(std::time::Duration::from_secs(30)))
-        .build()
-        .into();
+    // ureq 3.x: config_builder()...build() yields a Config, and the Agent
+    // comes from new_with_config.
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            .build(),
+    );
     let response = agent
         .get(DEFAULT_MODEL_URL)
         .call()
