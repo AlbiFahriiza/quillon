@@ -34,8 +34,8 @@ pub use frame_source::{Frame, FrameSource, MediaError, NullFrameSource};
 pub use lint::{LintFinding, lint_document};
 pub use otio::{OtioError, import_otio, subset_warnings};
 pub use subtitle::{
-    RegularizeConfig, SubtitleError, ms_to_ticks, parse_srt, parse_vtt, regularize_cues,
-    ticks_to_ms, to_srt, to_vtt,
+    MAX_CUE_TEXT_BYTES, MAX_PARSED_CUES, RegularizeConfig, SubtitleError, ms_to_ticks, parse_srt,
+    parse_vtt, regularize_cues, ticks_to_ms, to_srt, to_vtt,
 };
 pub use template::{TemplateError, VariableDef, VariableType, apply_template_json, fill_pattern};
 pub use validate::{ValidationError, validate_document, validate_str};

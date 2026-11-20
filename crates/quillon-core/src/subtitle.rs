@@ -34,6 +34,16 @@ fn err(line: usize, message: impl Into<String>) -> SubtitleError {
     }
 }
 
+/// Most cues one subtitle file may carry before parsing stops (r1 F2):
+/// the same cap the validator puts on a caption track, enforced at the
+/// read boundary so a crafted file cannot build millions of cues in RAM
+/// before validation ever runs.
+pub const MAX_PARSED_CUES: usize = 5_000;
+/// Longest single cue text accepted by the parsers (r1 F2), matching the
+/// text-element cap (`MAX_TEXT_LEN`). Splitting and merging happen after
+/// this check, so the work done on untrusted input stays bounded.
+pub const MAX_CUE_TEXT_BYTES: usize = 10_000;
+
 /// Milliseconds to document ticks. Exact for any timebase divisible by
 /// 1000 (format v1 accepts flicks only).
 pub fn ms_to_ticks(ms: i64, timebase: i64) -> i64 {
@@ -181,6 +191,23 @@ fn parse_cues(input: &str, vtt: bool) -> Result<Vec<RawCue>, SubtitleError> {
         // A cue with no text is the format's "clear the screen": skip it.
         if text.trim().is_empty() {
             continue;
+        }
+        if text.len() > MAX_CUE_TEXT_BYTES {
+            return Err(err(
+                start_line + timing_idx,
+                format!(
+                    "cue text is {} bytes; the limit is {MAX_CUE_TEXT_BYTES} bytes per cue",
+                    text.len()
+                ),
+            ));
+        }
+        if cues.len() >= MAX_PARSED_CUES {
+            return Err(err(
+                start_line,
+                format!(
+                    "the file has more than {MAX_PARSED_CUES} cues; split it into several tracks or files"
+                ),
+            ));
         }
         cues.push(RawCue {
             from_ms,
@@ -588,5 +615,59 @@ mod tests {
         let out = regularize_cues(&[cue(5.0, 6.0, "b"), cue(0.0, 1.0, "a")], &cfg, TB);
         assert_eq!(out[0].text, "a");
         assert_eq!(out[1].text, "b");
+    }
+}
+
+#[cfg(test)]
+mod r1_caps_tests {
+    use super::*;
+
+    const TB: i64 = FLICKS_PER_SECOND;
+
+    #[test]
+    fn cue_text_over_the_cap_is_a_named_error() {
+        let text = "x".repeat(MAX_CUE_TEXT_BYTES + 1);
+        let srt = format!("1\n00:00:00,000 --> 00:00:05,000\n{text}\n");
+        let error = parse_srt(&srt, TB).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains(&format!("the limit is {MAX_CUE_TEXT_BYTES}")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn more_cues_than_the_cap_is_a_named_error() {
+        let mut srt = String::new();
+        for i in 0..=MAX_PARSED_CUES {
+            srt.push_str(&format!(
+                "{i}\n00:00:0{},000 --> 00:00:0{},500\nline\n\n",
+                i % 9,
+                i % 9
+            ));
+        }
+        let error = parse_srt(&srt, TB).unwrap_err();
+        assert!(
+            error
+                .message
+                .contains(&format!("more than {MAX_PARSED_CUES} cues")),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn cues_at_the_cap_parse_fine() {
+        let mut srt = String::new();
+        for i in 0..MAX_PARSED_CUES {
+            srt.push_str(&format!(
+                "{}\n00:00:0{},000 --> 00:00:0{},500\nline\n\n",
+                i + 1,
+                i % 9,
+                i % 9
+            ));
+        }
+        let cues = parse_srt(&srt, TB).expect("exactly the cap parses");
+        assert_eq!(cues.len(), MAX_PARSED_CUES);
     }
 }

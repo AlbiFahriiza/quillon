@@ -170,6 +170,21 @@ fn parse_ass(content: &str, timebase: i64) -> Result<Vec<CaptionCue>, String> {
         if text.is_empty() {
             continue;
         }
+        // Same caps the SRT/VTT parsers enforce (r1 F2): untrusted input
+        // is bounded before any timing work runs.
+        if text.len() > quillon_core::MAX_CUE_TEXT_BYTES {
+            return Err(format!(
+                "an ASS cue text is {} bytes; the limit is {} bytes per cue",
+                text.len(),
+                quillon_core::MAX_CUE_TEXT_BYTES
+            ));
+        }
+        if cues.len() >= quillon_core::MAX_PARSED_CUES {
+            return Err(format!(
+                "the file has more than {} cues; split it into several tracks or files",
+                quillon_core::MAX_PARSED_CUES
+            ));
+        }
         let (sh, sm, ss, sms) = event.start.as_hms_milli();
         let (eh, em, es, ems) = event.end.as_hms_milli();
         let from_ms =
