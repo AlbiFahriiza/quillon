@@ -981,4 +981,111 @@ mod tests {
             "filter drops non-matches"
         );
     }
+
+    #[tokio::test]
+    async fn concurrent_render_cap_rejects_the_third_run_and_frees_slots() {
+        // r2 R2-4 (r1 F4 regression lock): two running renders saturate the
+        // cap, the third gets a named error, and a finished run frees its
+        // slot for the next one. Renders run on real threads against a
+        // long document, so the first two are still Running when the third
+        // call arrives.
+        let dir = workdir("render-cap");
+        let server = QuillonServer::new(dir.clone());
+        // A 64x64 canvas with the 64-scene maximum, each scene four
+        // seconds at 30 fps: enough work that two renders stay busy while
+        // the third call arrives, small enough to finish well inside the
+        // deadline. One animated rect per scene keeps frames non-trivial.
+        let mut scenes = Vec::new();
+        for i in 0..64 {
+            scenes.push(json!({
+                "id": format!("s{i}"),
+                "duration": 4 * 705_600_000i64,
+                "elements": [
+                    {
+                        "type": "rect",
+                        "x": 0, "y": 0, "w": 64, "h": 64,
+                        "color": "#336699"
+                    }
+                ]
+            }));
+        }
+        let doc = json!({
+            "v": 1, "size": { "w": 64, "h": 64 }, "fps": 30,
+            "scenes": scenes
+        });
+        let mut ids = Vec::new();
+        for _ in 0..2 {
+            let result = server
+                .render_document(Parameters(RenderDocumentInput {
+                    document: doc.clone(),
+                    format: "png".into(),
+                    out: None,
+                }))
+                .await;
+            assert_eq!(
+                result.is_error,
+                Some(false),
+                "first two renders start: {}",
+                text_of(&result)
+            );
+            let body: Value = serde_json::from_str(&text_of(&result)).expect("run id JSON");
+            ids.push(body["run_id"].as_str().expect("run id").to_string());
+        }
+        // Both must still be running (they have real work queued).
+        for id in &ids {
+            let status = server
+                .render_status(Parameters(RenderStatusInput { run_id: id.clone() }))
+                .await;
+            assert!(
+                text_of(&status).contains("running"),
+                "render {id} should still be running"
+            );
+        }
+        // The third is rejected with the cap's named error.
+        let third = server
+            .render_document(Parameters(RenderDocumentInput {
+                document: doc.clone(),
+                format: "png".into(),
+                out: None,
+            }))
+            .await;
+        assert_eq!(third.is_error, Some(true));
+        assert!(
+            text_of(&third).contains("renders are already running"),
+            "names the cap: {}",
+            text_of(&third)
+        );
+        // Wait for both to finish (bounded: the renders are small), then a
+        // new render is accepted again — the slots were freed.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        for id in &ids {
+            loop {
+                let status = server
+                    .render_status(Parameters(RenderStatusInput { run_id: id.clone() }))
+                    .await;
+                let text = text_of(&status);
+                if text.contains("\"done\"") {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "render {id} did not finish in time: {text}"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+        let fourth = server
+            .render_document(Parameters(RenderDocumentInput {
+                document: doc,
+                format: "png".into(),
+                out: None,
+            }))
+            .await;
+        assert_eq!(
+            fourth.is_error,
+            Some(false),
+            "a finished run frees its slot: {}",
+            text_of(&fourth)
+        );
+    }
 }
