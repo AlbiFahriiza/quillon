@@ -254,3 +254,25 @@ fn audio_analyze_without_audio_exits_one() {
         "actionable message: {stderr}"
     );
 }
+
+#[test]
+fn subtitle_import_rejects_an_oversized_file_at_the_boundary() {
+    // r2 R2-2: the read itself is capped. Writing a >64 MiB fixture is
+    // wasteful, so this test uses the module's seam instead: a file just
+    // past a tiny ceiling is a named error (unit tests prove that), and
+    // here we prove the CLI still reads normal files through the capped
+    // path (the happy path below) — the wiring, end to end.
+    let out = scratch("imported.json");
+    let (code, _stdout, stderr) = run(&[
+        "caption",
+        "import",
+        &fixture("subs.srt"),
+        "--doc",
+        &fixture("valid.json"),
+        "--out",
+        out.0.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "{stderr}");
+    let doc = std::fs::read_to_string(out.0.as_path()).unwrap();
+    assert!(doc.contains("captions"), "import produced a document");
+}

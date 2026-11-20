@@ -37,17 +37,21 @@ pub struct BatchSummary {
 /// Run the batch. Errors print `row N:` context and return early; the
 /// caller maps the error kind to an exit code.
 pub fn render_batch(args: &BatchArgs) -> Result<BatchSummary, String> {
-    let raw = std::fs::read_to_string(args.template)
-        .map_err(|e| format!("cannot read {}: {e}", args.template.display()))?;
+    // r2 R2-2: both inputs are bounded at the read boundary; the per-row
+    // caps only fire once the text is already in memory.
+    let raw = crate::read_capped::read_to_string_capped(
+        args.template,
+        crate::read_capped::MAX_TEXT_FILE_BYTES,
+    )?;
     let value: Value = serde_json::from_str(&raw)
         .map_err(|e| format!("{}: not valid JSON: {e}", args.template.display()))?;
     // The declared variables come from the template document itself.
     let base_doc: Document = serde_json::from_value(value.clone())
         .map_err(|e| format!("{}: not a Quillon document: {e}", args.template.display()))?;
-    let rows = csv::parse_rows(
-        &std::fs::read_to_string(args.data)
-            .map_err(|e| format!("cannot read {}: {e}", args.data.display()))?,
-    )?;
+    let rows = csv::parse_rows(&crate::read_capped::read_to_string_capped(
+        args.data,
+        crate::read_capped::MAX_CSV_FILE_BYTES,
+    )?)?;
 
     let base = args
         .template
