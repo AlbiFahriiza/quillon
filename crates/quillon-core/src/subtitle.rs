@@ -44,10 +44,31 @@ pub const MAX_PARSED_CUES: usize = 5_000;
 /// this check, so the work done on untrusted input stays bounded.
 pub const MAX_CUE_TEXT_BYTES: usize = 10_000;
 
+/// Hours a subtitle timestamp may carry (r3 F1). Minutes, seconds and
+/// milliseconds were always range-checked; hours were not, so a giant
+/// value overflowed the millisecond arithmetic and panicked. 100 h sits
+/// far above any real subtitle file (a day of continuous captions is 24)
+/// while keeping `hours * 3.6e6` far from i64::MAX.
+pub const MAX_TIMESTAMP_HOURS: i64 = 100;
+
 /// Milliseconds to document ticks. Exact for any timebase divisible by
-/// 1000 (format v1 accepts flicks only).
+/// 1000 (format v1 accepts flicks only). Wraps for inputs the product of
+/// whose magnitude and the timebase exceeds i64 — the callers that face
+/// untrusted timing (the subtitle parsers) use
+/// [`ms_to_ticks_checked`] instead (r3 F2).
 pub fn ms_to_ticks(ms: i64, timebase: i64) -> i64 {
     ms * timebase / 1000
+}
+
+/// [`ms_to_ticks`] with the overflow named instead of wrapped (r3 F2).
+/// The error message states the offending milliseconds and the timebase.
+pub fn ms_to_ticks_checked(ms: i64, timebase: i64) -> Result<i64, String> {
+    match (ms as i128 * timebase as i128 / 1000).try_into() {
+        Ok(ticks) => Ok(ticks),
+        Err(_) => Err(format!(
+            "a timestamp of {ms} ms does not fit the document timeline (timebase {timebase})"
+        )),
+    }
 }
 
 /// Document ticks to milliseconds; the exact inverse of [`ms_to_ticks`].
@@ -79,6 +100,12 @@ fn parse_timestamp(text: &str) -> Option<i64> {
     };
     let sec: i64 = sec.parse().ok()?;
     let ms: i64 = ms.parse().ok()?;
+    // r3 F1: hours is the only unbounded field (m/sec/ms are checked
+    // below); without its own bound the millisecond arithmetic overflows
+    // and panics on crafted files.
+    if !(0..=MAX_TIMESTAMP_HOURS).contains(&h) {
+        return None;
+    }
     if m > 59 || sec > 59 || ms > 999 {
         return None;
     }
@@ -164,7 +191,10 @@ fn parse_cues(input: &str, vtt: bool) -> Result<Vec<RawCue>, SubtitleError> {
         let (from_ms, to_ms) = parse_timing_line(block[timing_idx]).ok_or_else(|| {
             err(
                 start_line + timing_idx,
-                "cannot read the cue timing; expected HH:MM:SS,mmm --> HH:MM:SS,mmm",
+                format!(
+                    "cannot read the cue timing; expected HH:MM:SS,mmm --> HH:MM:SS,mmm \
+                     with hours at most {MAX_TIMESTAMP_HOURS}"
+                ),
             )
         })?;
         if from_ms >= to_ms {
@@ -218,24 +248,31 @@ fn parse_cues(input: &str, vtt: bool) -> Result<Vec<RawCue>, SubtitleError> {
     Ok(cues)
 }
 
-fn raw_to_cues(raw: Vec<RawCue>, timebase: i64) -> Vec<CaptionCue> {
-    raw.into_iter()
-        .map(|c| CaptionCue {
-            from: ms_to_ticks(c.from_ms, timebase),
-            to: ms_to_ticks(c.to_ms, timebase),
+fn raw_to_cues(raw: Vec<RawCue>, timebase: i64) -> Result<Vec<CaptionCue>, SubtitleError> {
+    // r3 F2: the conversion is checked; the parser's hour cap makes this
+    // unreachable for the SRT/VTT path, but raw_to_cues is a private seam
+    // and the check costs nothing.
+    let mut cues = Vec::with_capacity(raw.len());
+    for c in raw {
+        let from = ms_to_ticks_checked(c.from_ms, timebase).map_err(|e| err(0, e))?;
+        let to = ms_to_ticks_checked(c.to_ms, timebase).map_err(|e| err(0, e))?;
+        cues.push(CaptionCue {
+            from,
+            to,
             text: c.text,
-        })
-        .collect()
+        });
+    }
+    Ok(cues)
 }
 
 /// Parse an SRT subtitle file into cues on the document timeline.
 pub fn parse_srt(input: &str, timebase: i64) -> Result<Vec<CaptionCue>, SubtitleError> {
-    Ok(raw_to_cues(parse_cues(input, false)?, timebase))
+    raw_to_cues(parse_cues(input, false)?, timebase)
 }
 
 /// Parse a WebVTT file into cues on the document timeline.
 pub fn parse_vtt(input: &str, timebase: i64) -> Result<Vec<CaptionCue>, SubtitleError> {
-    Ok(raw_to_cues(parse_cues(input, true)?, timebase))
+    raw_to_cues(parse_cues(input, true)?, timebase)
 }
 
 /// Serialize cues as SRT (canonical: LF, `,mmm`, numbered from 1).
@@ -669,5 +706,64 @@ mod r1_caps_tests {
         }
         let cues = parse_srt(&srt, TB).expect("exactly the cap parses");
         assert_eq!(cues.len(), MAX_PARSED_CUES);
+    }
+}
+
+#[cfg(test)]
+mod r3_timestamp_tests {
+    use super::*;
+
+    const TB: i64 = FLICKS_PER_SECOND;
+
+    #[test]
+    fn r3_giant_hours_are_named_errors_not_panics() {
+        // R3-F1: the hours field was unbounded while minutes, seconds and
+        // milliseconds were checked; a giant hours value overflowed the
+        // millisecond arithmetic. The parser must reject it by name.
+        let srt = "1\n999999999999999999:00:00,000 --> 999999999999999999:00:01,000\nboom\n";
+        let result = parse_srt(srt, TB);
+        match result {
+            Err(e) => assert!(
+                e.message.contains("hours"),
+                "names the problem: {}",
+                e.message
+            ),
+            Ok(cues) => panic!("giant hours must not parse; got {cues:?}"),
+        }
+    }
+
+    #[test]
+    fn r3_legal_hours_still_parse() {
+        // A day plus change of hours is beyond any real subtitle but must
+        // still parse and convert; the cap sits far above real material.
+        let srt = "1\n100:00:00,000 --> 100:00:05,000\nlate night\n";
+        let cues = parse_srt(srt, TB).expect("100 h is within the cap");
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].from, 100 * 3600 * TB);
+    }
+
+    #[test]
+    fn r3_ms_to_ticks_rejects_overflow_by_name() {
+        // R3-F2: ms * timebase overflows i64 well before ms hits i64::MAX;
+        // the conversion must return an error, not wrap.
+        let giant_ms = i64::MAX / 4; // * 705_600_000 overflows i64
+        let result = ms_to_ticks_checked(giant_ms, TB);
+        assert!(result.is_err(), "giant ms must be a named error");
+        // The legal range stays exact.
+        assert_eq!(
+            ms_to_ticks_checked(42_421_957, TB).unwrap(),
+            42_421_957 * TB / 1000
+        );
+    }
+
+    #[test]
+    fn r3_vtt_giant_hours_are_named_errors_too() {
+        // VTT shares parse_cues with SRT, so the same guard covers it.
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 9999999999999:00:02.000\nboom\n";
+        let result = parse_vtt(vtt, TB);
+        match result {
+            Err(e) => assert!(e.message.contains("hours"), "{}", e.message),
+            Ok(cues) => panic!("giant VTT hours must not parse; got {cues:?}"),
+        }
     }
 }
