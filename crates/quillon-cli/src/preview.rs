@@ -159,28 +159,36 @@ pub fn render_filmstrip(doc: &Document, base_dir: &Path, cache: &FrameCache) -> 
                 Some(frame)
             });
         if let Some(frame) = frame {
+            let png = match encode_png(&frame) {
+                Ok(png) => png,
+                // r2 R2-5: a failed encode is visible on the operator
+                // channel and the sample is skipped — never a silent
+                // zero-byte PNG the page would render as broken.
+                Err(err) => {
+                    eprintln!("preview: cannot encode the frame at tick {tick}: {err}");
+                    continue;
+                }
+            };
             frames.push(PreviewFrame {
                 tick_ms: (tick / (quillon_core::time::FLICKS_PER_SECOND / 1000)).max(0) as u64,
-                png: encode_png(&frame),
+                png,
             });
         }
     }
     frames
 }
 
-fn encode_png(frame: &Frame) -> Vec<u8> {
+fn encode_png(frame: &Frame) -> Result<Vec<u8>, image::ImageError> {
     let mut out = Vec::new();
     let encoder = image::codecs::png::PngEncoder::new(&mut out);
     use image::ImageEncoder as _;
-    encoder
-        .write_image(
-            &frame.rgba,
-            frame.width,
-            frame.height,
-            image::ExtendedColorType::Rgba8,
-        )
-        .ok();
-    out
+    encoder.write_image(
+        &frame.rgba,
+        frame.width,
+        frame.height,
+        image::ExtendedColorType::Rgba8,
+    )?;
+    Ok(out)
 }
 
 /// Start the preview server: bind, build the first state, watch the

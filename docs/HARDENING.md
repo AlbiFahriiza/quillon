@@ -27,10 +27,20 @@ runs in CI on every platform.
 | MCP renders (r1 F4) | ≤ 2 concurrent renders, registry pruned to the 32 newest (never a live run) | `mcp.rs` |
 | Mux temp dir (r1 F5) | unpredictable pid+nanos name; refuses an existing path (symlink pre-planting) | `render_doc.rs` |
 | Download and flags (r1 F6, F7) | whisper download has a 30 s connect timeout; `--silence-db` rejects NaN/inf, `--min-silence-ms` bounded 1..=3 600 000 | `cli.rs` flag tests |
+| MCP path resolution (r2 R2-1) | caller paths with a root/prefix component or a Windows drive/UNC shape are named errors — `Path::join` would otherwise replace the working root | `mcp.rs` `probe_media_rejects_absolute_paths` |
+| Input file size (r2 R2-2) | documents, OTIO timelines and subtitle files enter through a 64 MiB read ceiling, CSVs through 512 MiB; the size is checked before the read, and re-checked after against a file that grew | `read_capped.rs` + `caption.rs` wiring test |
+| Decoded audio (r2 R2-3) | the decoder stops appending past 2^31 interleaved samples and names the ceiling instead of allocating without bound | `quillon-audio` `r2_cap_tests` |
+| MCP render cap regression (r2 R2-4) | the r1 two-render cap is locked by a test that renders two real documents, rejects the third, waits, and accepts the fourth | `mcp.rs` `concurrent_render_cap_rejects_the_third_run_and_frees_slots` |
+| Preview encode failures (r2 R2-5) | a failed draft PNG encode prints to stderr and the sample is skipped — never a silent zero-byte frame | `preview.rs` |
+| Whisper staging file (r2 R2-6) | the `.part` download stage carries a pid+nanos suffix (the r1 F5 pattern), so a pre-planted symlink cannot predict it | `transcribe.rs` |
+| Installer (r2 R2-7) | the binary lands via a staging copy + rename, so a racing or interrupted install cannot leave a half-written `~/.local/bin/quillon` | `installer.sh` |
+| CI supply chain (r2 R2-8) | every workflow `uses:` is pinned to the commit SHA its tag resolved to on 2026-11-20 | `.github/workflows/*.yml` |
 
 ## The limits, in one place
 
 - `MAX_CSV_ROWS = 1_000_000` data rows (`quillon-cli/src/csv.rs`)
+- `MAX_TEXT_FILE_BYTES = 64 MiB` for documents, OTIO and subtitle files; `MAX_CSV_FILE_BYTES = 512 MiB` for mail-merge data (`quillon-cli/src/read_capped.rs`, r2 R2-2)
+- `MAX_DECODED_SAMPLES = 2^31` interleaved f32 (~8 GiB, ~6 h stereo at 48 kHz) (`quillon-audio/src/lib.rs`, r2 R2-3)
 - `MAX_SCENE_DURATION_TICKS = MAX_DOCUMENT_DURATION_TICKS = 24 h` (`quillon-core/src/lib.rs`, r1 F1)
 - `MAX_ELEMENT_GEOMETRY = ±30 720 px` for element and clip x/y/w/h (r1 F9)
 - `MAX_PARSED_CUES = 5_000`, `MAX_CUE_TEXT_BYTES = 10 000` per subtitle file (r1 F2)

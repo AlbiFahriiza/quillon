@@ -552,10 +552,15 @@ fn inspect(path: &Path, json: bool) -> i32 {
 }
 
 fn read_document(path: &Path) -> Result<Document, i32> {
-    let text = match std::fs::read_to_string(path) {
+    // r2 R2-2: bounded read; the metadata check rejects a giant file
+    // before it claims the RAM.
+    let text = match quillon_cli::read_capped::read_to_string_capped(
+        path,
+        quillon_cli::read_capped::MAX_TEXT_FILE_BYTES,
+    ) {
         Ok(text) => text,
         Err(err) => {
-            eprintln!("cannot read {}: {err}", path.display());
+            eprintln!("{err}");
             return Err(1);
         }
     };
@@ -727,10 +732,14 @@ fn render(run: RenderRun) -> i32 {
 /// document, which must itself validate — including the media probe —
 /// before it is written.
 fn otio_import(otio_path: &Path, out: Option<PathBuf>, media_dir: Option<&str>) -> i32 {
-    let input = match std::fs::read_to_string(otio_path) {
+    // r2 R2-2: bounded read at the import boundary.
+    let input = match quillon_cli::read_capped::read_to_string_capped(
+        otio_path,
+        quillon_cli::read_capped::MAX_TEXT_FILE_BYTES,
+    ) {
         Ok(text) => text,
         Err(err) => {
-            eprintln!("cannot read {}: {err}", otio_path.display());
+            eprintln!("{err}");
             return 1;
         }
     };

@@ -30,8 +30,10 @@ pub fn import(
     flags: &ImportFlags,
     no_regularize: bool,
 ) -> Result<Document, String> {
-    let content = std::fs::read_to_string(subs)
-        .map_err(|e| format!("cannot read {}: {e}", subs.display()))?;
+    // r2 R2-2: bound the read before the per-cue caps get a chance; a
+    // giant file is rejected at the boundary, not after it is in RAM.
+    let content =
+        crate::read_capped::read_to_string_capped(subs, crate::read_capped::MAX_TEXT_FILE_BYTES)?;
     let timebase = doc.timebase;
     let cues = match subs.extension().and_then(|e| e.to_str()) {
         Some("srt") => parse_srt(&content, timebase).map_err(|e| e.to_string())?,

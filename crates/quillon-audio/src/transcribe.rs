@@ -95,13 +95,24 @@ pub fn ensure_model(path: &Path) -> Result<(), AudioError> {
         .ok_or_else(|| AudioError::Io("model path has no directory".into()))?;
     std::fs::create_dir_all(parent)
         .map_err(|e| AudioError::Io(format!("create {}: {e}", parent.display())))?;
-    let tmp = path.with_extension("part");
+    // r2 R2-6: unpredictable pid+nanos suffix (the r1 F5 pattern) so a
+    // pre-planted symlink beside the model cannot predict the staging
+    // path; a collision with a live download is a create error, which is
+    // the correct outcome.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("part-{}-{nanos}", std::process::id()));
     // r1 F6: a stalled server must not hang transcription forever; bound
     // the connect phase (the body read stays streaming for the ~75 MB).
-    let agent = ureq::Agent::config_builder()
-        .timeout_connect(std::time::Duration::from_secs(30))
-        .build()
-        .into();
+    // ureq 3.x: config_builder()...build() yields a Config, and the Agent
+    // comes from new_with_config.
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            .build(),
+    );
     let response = agent
         .get(DEFAULT_MODEL_URL)
         .call()

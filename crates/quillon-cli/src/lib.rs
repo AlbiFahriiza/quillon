@@ -10,4 +10,5 @@ pub mod csv;
 pub mod encode;
 pub mod mcp;
 pub mod preview;
+pub mod read_capped;
 pub mod render_doc;
