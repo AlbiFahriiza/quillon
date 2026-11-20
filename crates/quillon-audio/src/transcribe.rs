@@ -96,7 +96,14 @@ pub fn ensure_model(path: &Path) -> Result<(), AudioError> {
     std::fs::create_dir_all(parent)
         .map_err(|e| AudioError::Io(format!("create {}: {e}", parent.display())))?;
     let tmp = path.with_extension("part");
-    let response = ureq::get(DEFAULT_MODEL_URL)
+    // r1 F6: a stalled server must not hang transcription forever; bound
+    // the connect phase (the body read stays streaming for the ~75 MB).
+    let agent = ureq::Agent::config_builder()
+        .timeout_connect(std::time::Duration::from_secs(30))
+        .build()
+        .into();
+    let response = agent
+        .get(DEFAULT_MODEL_URL)
         .call()
         .map_err(|e| AudioError::Transcribe(format!("cannot download the whisper model: {e}")))?;
     let mut file = std::fs::File::create(&tmp)

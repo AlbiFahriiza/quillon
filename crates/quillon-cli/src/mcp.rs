@@ -41,6 +41,13 @@ pub const SCHEMA_URI: &str = "quillon://schema/document";
 const MAX_PREVIEW_FRAMES: usize = 16;
 /// Most files list_assets/list_fonts may report (plan §11: bounded input).
 const MAX_LIST_ENTRIES: usize = 256;
+/// Most renders the MCP server runs at once (r1 F4): each render burns a
+/// worker pool; an agent that ignores the "do not call in a loop" note
+/// must hit a named error, not an unbounded CPU bill.
+const MAX_CONCURRENT_RENDERS: usize = 2;
+/// How many finished run entries the registry keeps before pruning (r1 F4);
+/// render_status only needs recent history.
+const MAX_RUN_REGISTRY: usize = 32;
 
 // ---------------------------------------------------------------------------
 // Tool input schemas (schemars derives the JSON Schema the client sees)
@@ -387,6 +394,22 @@ impl QuillonServer {
             }
         };
         let run_id = format!("run-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        // r1 F4: cap concurrent renders before spawning; excess calls get
+        // a named error telling the agent to poll what is already running.
+        if self
+            .runs()
+            .values()
+            .filter(|s| matches!(s, RunStatus::Running))
+            .count()
+            >= MAX_CONCURRENT_RENDERS
+        {
+            return step_error(
+                "render_document",
+                format!(
+                    "{MAX_CONCURRENT_RENDERS} renders are already running; poll them with render_status before starting more"
+                ),
+            );
+        }
         let out = match input.out {
             Some(relative) => match self.resolve(&relative) {
                 Ok(path) => path,
@@ -420,6 +443,29 @@ impl QuillonServer {
             runs.lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .insert(id, status);
+            // r1 F4: the registry is bounded; keep the newest entries and
+            // drop the oldest so a long-lived server cannot grow without
+            // limit. Keys sort lexicographically (run-N), so sort by the
+            // numeric suffix, not by string.
+            let mut guard = runs.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            if guard.len() > MAX_RUN_REGISTRY {
+                let mut ids: Vec<(u64, String)> = guard
+                    .keys()
+                    .filter_map(|k| {
+                        k.strip_prefix("run-")
+                            .and_then(|n| n.parse().ok())
+                            .map(|n| (n, k.clone()))
+                    })
+                    .collect();
+                ids.sort();
+                let excess = guard.len() - MAX_RUN_REGISTRY;
+                for (_, key) in ids.into_iter().take(excess) {
+                    if matches!(guard.get(&key), Some(RunStatus::Running)) {
+                        continue; // never drop a live run's entry
+                    }
+                    guard.remove(&key);
+                }
+            }
         });
         text_result(json!({
             "run_id": run_id,

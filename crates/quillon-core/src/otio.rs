@@ -158,6 +158,13 @@ pub fn import_otio(input: &str, media_dir: Option<&str>) -> Result<Document, Oti
             if duration <= 0 {
                 return Err(err(format!("clip \"{name}\" has a non-positive duration")));
             }
+            // Checked: `from + duration` can overflow i64 when both are
+            // huge (r1 F3); the wrapped value would corrupt the window.
+            let to = from.checked_add(duration).ok_or_else(|| {
+                err(format!(
+                    "clip \"{name}\": start {from} plus duration {duration} overflows the timeline"
+                ))
+            })?;
             builder = builder.scene(crate::document::Scene {
                 id: name.to_string(),
                 duration,
@@ -169,10 +176,7 @@ pub fn import_otio(input: &str, media_dir: Option<&str>) -> Result<Document, Oti
                     w: 1920,
                     h: 1080,
                     fit: crate::document::Fit::Contain,
-                    source_range: Some(crate::document::SourceRange {
-                        from,
-                        to: from + duration,
-                    }),
+                    source_range: Some(crate::document::SourceRange { from, to }),
                     speed: 1.0,
                     shadow: None,
                     clip: None,
@@ -199,6 +203,9 @@ pub fn import_otio(input: &str, media_dir: Option<&str>) -> Result<Document, Oti
             let asset_id = format!("otio{asset_seq}");
             asset_seq += 1;
             builder = builder.asset(&asset_id, Asset::Audio { src, sha256: None });
+            // Audio tolerates missing ranges (0 defaults), but a present
+            // range that overflows is still a named error, not a wrapped
+            // `to` (r1 F3 — the video path above behaves the same).
             let from = rational_to_ticks(
                 &clip["source_range"]["start_time"],
                 &format!("audio clip \"{name}\" start"),
@@ -213,14 +220,16 @@ pub fn import_otio(input: &str, media_dir: Option<&str>) -> Result<Document, Oti
                 timebase,
             )
             .unwrap_or(0);
+            let to = from.checked_add(duration.max(1)).ok_or_else(|| {
+                err(format!(
+                    "audio clip \"{name}\": start {from} plus duration {duration} overflows the timeline"
+                ))
+            })?;
             builder = builder.audio_track(crate::document::AudioTrack {
                 asset: asset_id,
                 gain: 1.0,
                 start_at: 0,
-                source_range: Some(crate::document::SourceRange {
-                    from,
-                    to: from + duration.max(1),
-                }),
+                source_range: Some(crate::document::SourceRange { from, to }),
                 fades: Vec::new(),
             });
         }
@@ -428,5 +437,21 @@ mod tests {
         );
         assert_eq!(subset_warnings(&two).len(), 1, "{two}");
         assert_eq!(subset_warnings(TIMELINE).len(), 0);
+    }
+
+    #[test]
+    fn start_plus_duration_overflow_is_a_named_error() {
+        // r1 F3: start near i64::MAX with a positive duration used to
+        // wrap the computed `to`; now the addition is checked.
+        let evil = TIMELINE.replace(
+            "\"rate\": 30.0, \"value\": 30.0",
+            "\"rate\": 1.0, \"value\": 9.0e18",
+        );
+        let error = import_otio(&evil, None).unwrap_err();
+        assert!(
+            error.message.contains("overflows the timeline"),
+            "{}",
+            error.message
+        );
     }
 }

@@ -384,7 +384,21 @@ fn main() {
                 json,
                 silence_db,
                 min_silence_ms,
-            } => audio_analyze(&doc, json, silence_db, min_silence_ms),
+            } => {
+                // r1 F7: named errors for flag values that cannot mean
+                // anything (NaN/inf thresholds, absurd windows).
+                if !silence_db.is_finite() {
+                    eprintln!("--silence-db must be a finite number, got {silence_db}");
+                    return_exit(1);
+                }
+                if min_silence_ms == 0 || min_silence_ms > 3_600_000 {
+                    eprintln!(
+                        "--min-silence-ms must be within 1..=3600000 (1 ms to 1 h), got {min_silence_ms}"
+                    );
+                    return_exit(1);
+                }
+                audio_analyze(&doc, json, silence_db, min_silence_ms)
+            }
         },
     };
     std::process::exit(code);
