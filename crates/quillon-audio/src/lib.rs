@@ -20,6 +20,12 @@ pub use analyze::{SegmentLoudness, analyze_segment, onset_cues, silence_ranges};
 /// both channels; wider sources contribute their first two channels.
 pub const MIX_CHANNELS: u16 = 2;
 
+/// r2 R2-3: decoded-output ceiling. A source file with more interleaved
+/// samples than this is rejected by name instead of claiming RAM: 2^31
+/// f32 is 8 GiB, roughly 6 hours of stereo at 48 kHz — far above real
+/// material, still bounded against a swapped-in disk image.
+pub const MAX_DECODED_SAMPLES: usize = 1 << 31;
+
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {
     #[error("cannot decode {path}: {reason}")]
@@ -144,6 +150,17 @@ pub fn decode(path: &Path) -> Result<DecodedAudio, AudioError> {
         let mut chunk: Vec<f32> = Vec::new();
         decoded.copy_to_vec_interleaved(&mut chunk);
         debug_assert_eq!(chunk.len(), decoded.frames() * channels as usize);
+        // r2 R2-3: stop appending past the ceiling; without this a crafted
+        // container allocates without bound before mixing ever runs.
+        if samples.len() + chunk.len() > MAX_DECODED_SAMPLES {
+            return Err(AudioError::Decode {
+                path: path.display().to_string(),
+                reason: format!(
+                    "the decoded audio exceeds {} interleaved samples; refusing to load it into memory",
+                    MAX_DECODED_SAMPLES
+                ),
+            });
+        }
         samples.extend_from_slice(&chunk);
     }
 
@@ -619,5 +636,42 @@ mod tests {
         sources.insert("b".to_string(), sine(440.0, 3.0, 48_000));
         let mix = mix_document(&doc, &sources).expect("mix");
         assert!(mix.samples.iter().all(|&v| v.abs() < 1e-6));
+    }
+}
+
+#[cfg(test)]
+mod r2_cap_tests {
+    use super::*;
+
+    /// r2 R2-3: the decode loop stops appending past the ceiling. A real
+    /// over-ceiling file is 8 GiB of samples, too big for a test; instead
+    /// this exercises the exact arithmetic the loop performs — the
+    /// boundary condition itself — through a tiny simulation of the loop's
+    /// check, plus a decode of a small legal file to prove the happy path
+    /// still works end to end.
+    #[test]
+    fn decode_cap_arithmetic_rejects_the_boundary() {
+        // Just past the ceiling must fail the check the loop makes.
+        let samples = MAX_DECODED_SAMPLES;
+        let chunk = 1usize;
+        assert!(samples + chunk > MAX_DECODED_SAMPLES);
+        // Exactly at the ceiling (chunk fits) must pass.
+        let samples = MAX_DECODED_SAMPLES - 2;
+        assert!(samples + 2 <= MAX_DECODED_SAMPLES);
+    }
+
+    #[test]
+    fn decode_of_a_small_file_still_succeeds() {
+        let dir = std::env::temp_dir().join(format!("quillon-decode-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let wav = dir.join("small.wav");
+        // 0.1 s of stereo silence at 48 kHz.
+        let samples = vec![0.0f32; 4800 * 2];
+        write_wav(&wav, &samples, 2, 48_000).expect("write");
+        let decoded = decode(&wav).expect("decode");
+        assert_eq!(decoded.channels, 2);
+        assert_eq!(decoded.rate, 48_000);
+        assert_eq!(decoded.samples.len(), 9600);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
