@@ -58,6 +58,15 @@ pub fn render_document_parallel(
     // the feeding thread mirrors what each worker thread builds for itself.
     drop(Renderer::new(doc, base_dir)?);
 
+    // r3 F3: fps 0 makes frame_tick divide by zero — check BEFORE the
+    // call, not after it (a library-built Document skips the validator,
+    // and a public API must not panic on caller data).
+    if doc.fps == 0 {
+        return Err(RenderError::Pool(format!(
+            "fps {} does not produce a usable frame tick",
+            doc.fps
+        )));
+    }
     let frame = frame_tick(doc.fps);
     if frame <= 0 {
         return Err(RenderError::Pool(format!(
